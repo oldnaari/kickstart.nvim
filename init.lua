@@ -453,6 +453,7 @@ require('lazy').setup({
   },
   { 'Bilal2453/luvit-meta', lazy = true },
   { 'jeetsukumaran/vim-indentwise' },
+  { 'neoclide/coc.nvim' },
   {
     -- Main LSP Configuration
     'neovim/nvim-lspconfig',
