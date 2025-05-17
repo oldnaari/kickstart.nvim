@@ -456,6 +456,7 @@ require('lazy').setup({
     },
   },
   { 'Bilal2453/luvit-meta', lazy = true },
+  { 'michaeljsmith/vim-indent-object' },
   { 'jeetsukumaran/vim-indentwise' },
   { 'neoclide/coc.nvim' },
   {
