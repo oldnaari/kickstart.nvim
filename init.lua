@@ -987,6 +987,36 @@ require('lazy').setup({
     },
   },
 })
+local insert_start_row = nil
+
+-- Record the line where insert mode begins
+vim.api.nvim_create_autocmd('InsertEnter', {
+  callback = function()
+    insert_start_row = vim.api.nvim_win_get_cursor(0)[1]
+  end,
+})
+
+-- On InsertLeave, clean all-whitespace lines from the insert region
+vim.api.nvim_create_autocmd('InsertLeave', {
+  callback = function()
+    if not insert_start_row then
+      return
+    end
+    local end_row = vim.api.nvim_win_get_cursor(0)[1]
+    local buf = 0 -- current buffer
+
+    -- Ensure start <= end
+    local start_row = math.min(insert_start_row, end_row)
+    end_row = math.max(insert_start_row, end_row)
+
+    local lines = vim.api.nvim_buf_get_lines(buf, start_row - 1, end_row, false)
+    for i, line in ipairs(lines) do
+      if line:match '^%s+$' then
+        vim.api.nvim_buf_set_lines(buf, start_row - 1 + i - 1, start_row - 1 + i, false, { '' })
+      end
+    end
+  end,
+})
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
