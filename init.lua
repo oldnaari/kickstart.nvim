@@ -327,6 +327,66 @@ require('lazy').setup({
     config = function()
       require('log-highlight').setup {}
     end,
+  }, -- lazy.nvim
+  {
+    'folke/zen-mode.nvim',
+    opts = {
+      -- Your configuration options for zen-mode.nvim go here
+      -- For example:
+      -- width = 120,
+      -- options = {
+      --   signcolumn = "no",
+      --   number = false,
+      --   relativenumber = false,
+      -- },
+    },
+    -- You can also add lazy loading conditions here if desired,
+    -- for example, to load only when a specific command is run:
+    -- cmd = "ZenMode",
+  },
+  -- lua/plugins/pencil.lua
+  {
+    'preservim/vim-pencil',
+    init = function()
+      -- This runs during startup and sets defaults
+      -- Example: Set a default mode for all markdown files
+      vim.cmd [[autocmd FileType markdown PencilSoft]]
+    end,
+  },
+  {
+    'folke/noice.nvim',
+    event = 'VeryLazy',
+    opts = {
+      -- add any options here
+    },
+    dependencies = {
+      -- if you lazy-load any plugin below, make sure to add proper `module="..."` entries
+      'MunifTanjim/nui.nvim',
+      -- OPTIONAL:
+      --   `nvim-notify` is only needed, if you want to use the notification view.
+      --   If not available, we use `mini` as the fallback
+      'rcarriga/nvim-notify',
+    },
+    config = function()
+      require('noice').setup {
+        lsp = {
+          -- override markdown rendering so that **cmp** and other plugins use **Treesitter**
+          override = {
+            ['vim.lsp.util.convert_input_to_markdown_lines'] = true,
+            ['vim.lsp.util.stylize_markdown'] = true,
+            ['cmp.entry.get_documentation'] = true, -- requires hrsh7th/nvim-cmp
+          },
+        },
+        -- you can enable a preset for easier configuration
+        presets = {
+          bottom_search = true, -- use a classic bottom cmdline for search
+          command_palette = true, -- position the cmdline and popupmenu together
+          long_message_to_split = true, -- long messages will be sent to a split
+          inc_rename = false, -- enables an input dialog for inc-rename.nvim
+          lsp_doc_border = false, -- add a border to hover docs and signature help
+        },
+      }
+    end,
   },
   { -- Useful plugin to show you pending keybinds.
     'folke/which-key.nvim',
@@ -533,6 +593,9 @@ require('lazy').setup({
       -- Allows extra capabilities provided by nvim-cmp
       'hrsh7th/cmp-nvim-lsp',
     },
+    opts = {
+      inlay_hints = { enabled = false },
+    },
     config = function()
       -- Brief aside: **What is LSP?**
       --
@@ -619,6 +682,7 @@ require('lazy').setup({
           --
           -- When you move your cursor, the highlights will be cleared (the second autocommand).
           local client = vim.lsp.get_client_by_id(event.data.client_id)
+
           if client and client.supports_method(vim.lsp.protocol.Methods.textDocument_documentHighlight) then
             local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
             vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
@@ -1064,6 +1128,11 @@ vim.api.nvim_create_autocmd('InsertLeave', {
       end
     end
   end,
+})
+
+-- Disable CoC inlay hints
+vim.g.coc_user_config = vim.tbl_deep_extend('force', vim.g.coc_user_config or {}, {
+  inlayHint = { enable = false },
 })
 
 -- The line beneath this is called `modeline`. See `:help modeline`
