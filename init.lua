@@ -353,6 +353,29 @@ require('lazy').setup({
       vim.cmd [[autocmd FileType markdown PencilSoft]]
     end,
   },
+  -- Lua
+  {
+    'folke/twilight.nvim',
+    opts = {
+      -- your configuration comes here
+      -- or leave it empty to use the default settings
+      -- refer to the configuration section below
+      dimming = {
+        alpha = 0.25, -- Adjust the dimming amount as needed
+        color = { 'Normal', '#2E3440' }, -- Fallback to Nord's background color
+        term_bg = '#2E3440', -- Ensure terminal background is also set
+        inactive = false, -- or true, depending on preference
+      },
+    },
+    dependencies = {},
+  },
+  {
+    'rcarriga/nvim-notify',
+    opts = {
+      -- other stuff
+      background_colour = '#2E3440',
+    },
+  },
   {
     'folke/noice.nvim',
     event = 'VeryLazy',
