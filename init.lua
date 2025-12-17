@@ -403,6 +403,9 @@ require('lazy').setup({
     },
     config = function()
       require('noice').setup {
+        messages = {
+          enabled = False,
+        },
         lsp = {
           -- override markdown rendering so that **cmp** and other plugins use **Treesitter**
           override = {
