@@ -385,14 +385,13 @@ require('lazy').setup({
     opts = {
       -- other stuff
       background_colour = '#2E3440',
+      -- Only show WARN and ERROR level notifications
+      level = vim.log.levels.WARN,
     },
   },
   {
     'folke/noice.nvim',
     event = 'VeryLazy',
-    opts = {
-      -- add any options here
-    },
     dependencies = {
       -- if you lazy-load any plugin below, make sure to add proper `module="..."` entries
       'MunifTanjim/nui.nvim',
@@ -402,10 +401,8 @@ require('lazy').setup({
       'rcarriga/nvim-notify',
     },
     config = function()
+      ---@type NoiceConfig
       require('noice').setup {
-        messages = {
-          enabled = False,
-        },
         lsp = {
           -- override markdown rendering so that **cmp** and other plugins use **Treesitter**
           override = {
@@ -413,6 +410,10 @@ require('lazy').setup({
             ['vim.lsp.util.stylize_markdown'] = true,
             ['cmp.entry.get_documentation'] = true, -- requires hrsh7th/nvim-cmp
           },
+        },
+        routes = {
+          -- Skip routing notifications to messages view - nvim-notify handles display
+          -- nvim-notify is configured with level = WARN, so only WARN/ERROR show
         },
         -- you can enable a preset for easier configuration
         presets = {
@@ -422,6 +423,17 @@ require('lazy').setup({
           inc_rename = false, -- enables an input dialog for inc-rename.nvim
           lsp_doc_border = false, -- add a border to hover docs and signature help
         },
+        -- Configure notify - use nvim-notify view (which respects level filter)
+        notify = {
+          enabled = true,
+          view = 'notify',
+        },
+        -- Add empty tables for other sections to satisfy LSP type checking
+        cmdline = {},
+        messages = {},
+        views = {},
+        popupmenu = {},
+        commands = {},
       }
     end,
   },
@@ -676,6 +688,13 @@ require('lazy').setup({
             vim.keymap.set(mode, keys, func, { buffer = event.buf, desc = 'LSP: ' .. desc })
           end
 
+          -- Disable formatting for lua_ls since we use stylua
+          local client = vim.lsp.get_client_by_id(event.data.client_id)
+          if client and client.name == 'lua_ls' then
+            client.server_capabilities.documentFormattingProvider = false
+            client.server_capabilities.documentRangeFormattingProvider = false
+          end
+
           -- Jump to the definition of the word under your cursor.
           --  This is where a variable was first declared, or where a function is defined, etc.
           --  To jump back, press <C-t>.
@@ -868,6 +887,19 @@ require('lazy').setup({
         else
           lsp_format_opt = 'fallback'
         end
+        -- For Lua files, use stylua only (no LSP formatting fallback)
+        if vim.bo[bufnr].filetype == 'lua' then
+          local stylua_path = vim.fn.exepath 'stylua' or vim.fn.exepath(vim.fn.stdpath 'data' .. '/mason/bin/stylua')
+          if stylua_path == '' then
+            -- If stylua is not available, skip formatting entirely
+            return { lsp_format = 'never' }
+          end
+          -- Use stylua only, no LSP fallback
+          return {
+            timeout_ms = 500,
+            lsp_format = 'never',
+          }
+        end
         return {
           timeout_ms = 500,
           lsp_format = lsp_format_opt,
@@ -880,6 +912,18 @@ require('lazy').setup({
         --
         -- You can use 'stop_after_first' to run the first available formatter from the list
         -- javascript = { "prettierd", "prettier", stop_after_first = true },
+      },
+      formatters = {
+        stylua = {
+          -- Use config file if found in project root
+          prepend_args = function()
+            local config_file = vim.fs.find({ '.stylua.toml', 'stylua.toml' }, { path = vim.fn.getcwd(), upward = true })[1]
+            if config_file then
+              return { '--config-path', config_file }
+            end
+            return {}
+          end,
+        },
       },
     },
   },
