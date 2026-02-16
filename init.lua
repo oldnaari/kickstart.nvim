@@ -390,6 +390,26 @@ require('lazy').setup({
     },
   },
   {
+    'plasticboy/vim-markdown',
+    ft = { 'markdown' },
+    init = function()
+      -- optional settings
+      vim.g.vim_markdown_folding_disabled = 1
+      vim.g.vim_markdown_conceal_code_blocks = 0
+      vim.g.vim_markdown_conceal = 2
+      vim.g.vim_markdown_math = 1
+      vim.g.vim_markdown_strikethrough = 1
+      vim.opt.conceallevel = 2
+      vim.g.vim_markdown_fenced_languages = {
+        'python',
+        'lua',
+        'bash',
+        'json',
+        'yaml',
+      }
+    end,
+  },
+  {
     'folke/noice.nvim',
     event = 'VeryLazy',
     dependencies = {
@@ -1114,6 +1134,68 @@ require('lazy').setup({
       -- ... and there is more!
       --  Check out: https://github.com/echasnovski/mini.nvim
     end,
+  },
+  {
+    'MeanderingProgrammer/render-markdown.nvim',
+    ft = { 'markdown' },
+    dependencies = {
+      'nvim-treesitter/nvim-treesitter',
+      'nvim-tree/nvim-web-devicons', -- optional but recommended
+    },
+    opts = {
+      heading = {
+        enabled = true,
+        sign = false,
+        icons = { '󰲡 ', '󰲣 ', '󰲥 ', '󰲧 ', '󰲩 ', '󰲫 ' },
+        backgrounds = {
+          'RenderMarkdownH1Bg',
+          'RenderMarkdownH2Bg',
+          'RenderMarkdownH3Bg',
+          'RenderMarkdownH4Bg',
+          'RenderMarkdownH5Bg',
+          'RenderMarkdownH6Bg',
+        },
+      },
+
+      code = {
+        enabled = true,
+        sign = false,
+        width = 'block',
+        border = 'thin',
+        left_pad = 2,
+        right_pad = 2,
+      },
+
+      bullet = {
+        enabled = true,
+        icons = { '●', '○', '◆', '◇' },
+      },
+
+      checkbox = {
+        enabled = true,
+        unchecked = '󰄱',
+        checked = '󰱒',
+        custom = {
+          todo = { raw = '[~]', rendered = '󰥔' },
+        },
+      },
+
+      quote = {
+        enabled = true,
+        icon = '▎',
+      },
+
+      pipe_table = {
+        enabled = true,
+      },
+
+      callout = {
+        note = { icon = '󰋽', highlight = 'RenderMarkdownInfo' },
+        tip = { icon = '󰌶', highlight = 'RenderMarkdownSuccess' },
+        warning = { icon = '󰀪', highlight = 'RenderMarkdownWarn' },
+        danger = { icon = '󰳦', highlight = 'RenderMarkdownError' },
+      },
+    },
   },
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
