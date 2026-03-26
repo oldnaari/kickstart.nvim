@@ -1096,7 +1096,15 @@ require('lazy').setup({
       --  - va)  - [V]isually select [A]round [)]paren
       --  - yinq - [Y]ank [I]nside [N]ext [Q]uote
       --  - ci'  - [C]hange [I]nside [']quote
-      require('mini.ai').setup { n_lines = 500 }
+      local ai = require 'mini.ai'
+      ai.setup {
+        n_lines = 500,
+        custom_textobjects = {
+          -- Use treesitter for function and parameter textobjects
+          f = ai.gen_spec.treesitter({ a = '@function.outer', i = '@function.inner' }),
+          a = ai.gen_spec.treesitter({ a = '@parameter.outer', i = '@parameter.inner' }),
+        },
+      }
 
       -- Add/delete/replace surroundings (brackets, quotes, etc.)
       --
@@ -1199,6 +1207,9 @@ require('lazy').setup({
   },
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
+    dependencies = {
+      'nvim-treesitter/nvim-treesitter-textobjects',
+    },
     build = ':TSUpdate',
     main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
@@ -1214,13 +1225,56 @@ require('lazy').setup({
         additional_vim_regex_highlighting = { 'ruby', 'python' },
       },
       indent = { enable = true, disable = { 'ruby' } },
+      textobjects = {
+        select = {
+          enable = true,
+          lookahead = true, -- Automatically jump forward to matching textobject
+          keymaps = {
+            -- NOTE: af/if and aa/ia are handled by mini.ai with treesitter specs
+            ['ac'] = { query = '@class.outer', desc = 'Select outer class' },
+            ['ic'] = { query = '@class.inner', desc = 'Select inner class' },
+            ['a='] = { query = '@assignment.outer', desc = 'Select outer assignment' },
+            ['i='] = { query = '@assignment.inner', desc = 'Select inner assignment' },
+            ['l='] = { query = '@assignment.lhs', desc = 'Select left hand side of assignment' },
+            ['r='] = { query = '@assignment.rhs', desc = 'Select right hand side of assignment' },
+          },
+        },
+        move = {
+          enable = true,
+          set_jumps = true, -- Add jumps to the jumplist
+          goto_next_start = {
+            [']m'] = { query = '@function.outer', desc = 'Next function start' },
+            [']]'] = { query = '@class.outer', desc = 'Next class start' },
+          },
+          goto_next_end = {
+            [']M'] = { query = '@function.outer', desc = 'Next function end' },
+            [']['] = { query = '@class.outer', desc = 'Next class end' },
+          },
+          goto_previous_start = {
+            ['[m'] = { query = '@function.outer', desc = 'Prev function start' },
+            ['[['] = { query = '@class.outer', desc = 'Prev class start' },
+          },
+          goto_previous_end = {
+            ['[M'] = { query = '@function.outer', desc = 'Prev function end' },
+            ['[]'] = { query = '@class.outer', desc = 'Prev class end' },
+          },
+        },
+        swap = {
+          enable = true,
+          swap_next = {
+            ['<leader>a'] = { query = '@parameter.inner', desc = 'Swap with next parameter' },
+          },
+          swap_previous = {
+            ['<leader>A'] = { query = '@parameter.inner', desc = 'Swap with previous parameter' },
+          },
+        },
+      },
     },
     -- There are additional nvim-treesitter modules that you can use to interact
     -- with nvim-treesitter. You should go explore a few and see what interests you:
     --
     --    - Incremental selection: Included, see `:help nvim-treesitter-incremental-selection-mod`
     --    - Show your current context: https://github.com/nvim-treesitter/nvim-treesitter-context
-    --    - Treesitter + textobjects: https://github.com/nvim-treesitter/nvim-treesitter-textobjects
   },
   -- {
   --   'numirias/semshi',
