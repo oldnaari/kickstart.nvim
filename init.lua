@@ -108,7 +108,7 @@ vim.opt.relativenumber = true
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.opt.mouse = 'a'
 
-vim.g.python3_host_prog = vim.fn.exepath 'python'
+vim.g.python3_host_prog = vim.fn.exepath 'python' ~= '' and vim.fn.exepath 'python' or vim.fn.exepath 'python3'
 
 -- Don't show the mode, since it's already in the status line
 vim.opt.showmode = false
@@ -216,7 +216,7 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   desc = 'Highlight when yanking (copying) text',
   group = vim.api.nvim_create_augroup('kickstart-highlight-yank', { clear = true }),
   callback = function()
-    vim.highlight.on_yank()
+    vim.hl.on_yank()
   end,
 })
 
@@ -1181,8 +1181,8 @@ require('lazy').setup({
 
       checkbox = {
         enabled = true,
-        unchecked = '󰄱',
-        checked = '󰱒',
+        unchecked = { icon = '󰄱' },
+        checked = { icon = '󰱒' },
         custom = {
           todo = { raw = '[~]', rendered = '󰥔' },
         },
@@ -1198,11 +1198,12 @@ require('lazy').setup({
       },
 
       callout = {
-        note = { icon = '󰋽', highlight = 'RenderMarkdownInfo' },
-        tip = { icon = '󰌶', highlight = 'RenderMarkdownSuccess' },
-        warning = { icon = '󰀪', highlight = 'RenderMarkdownWarn' },
-        danger = { icon = '󰳦', highlight = 'RenderMarkdownError' },
+        note = { raw = '[!NOTE]', rendered = '󰋽 Note', highlight = 'RenderMarkdownInfo' },
+        tip = { raw = '[!TIP]', rendered = '󰌶 Tip', highlight = 'RenderMarkdownSuccess' },
+        warning = { raw = '[!WARNING]', rendered = '󰀪 Warning', highlight = 'RenderMarkdownWarn' },
+        danger = { raw = '[!DANGER]', rendered = '󰳦 Danger', highlight = 'RenderMarkdownError' },
       },
+      latex = { enabled = false },
     },
   },
   { -- Highlight, edit, and navigate code
