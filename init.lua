@@ -302,7 +302,15 @@ require('lazy').setup({
       {
         '<leader>-',
         mode = { 'n', 'v' },
-        '<cmd>Yazi<cr>',
+        function()
+          -- When editing a temp file (e.g. from shell ctrl-x ctrl-e), open at cwd instead
+          local bufpath = vim.api.nvim_buf_get_name(0)
+          if bufpath:match '^/tmp/' or bufpath:match '^/private/tmp/' then
+            vim.cmd 'Yazi cwd'
+          else
+            vim.cmd 'Yazi'
+          end
+        end,
         desc = 'Open yazi at the current file',
       },
       {
@@ -645,7 +653,7 @@ require('lazy').setup({
   { 'Bilal2453/luvit-meta', lazy = true },
   { 'michaeljsmith/vim-indent-object' },
   { 'jeetsukumaran/vim-indentwise' },
-  { 'neoclide/coc.nvim' },
+  -- { 'neoclide/coc.nvim' },
   {
     -- Main LSP Configuration
     'neovim/nvim-lspconfig',
@@ -822,7 +830,7 @@ require('lazy').setup({
       local servers = {
         -- clangd = {},
         -- gopls = {},
-        -- pyright = {},
+        pyright = {},
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
@@ -1061,6 +1069,20 @@ require('lazy').setup({
           { name = 'path' },
         },
       }
+
+      -- Make cmp-path complete relative to cwd when editing temp files
+      -- (e.g. shell commands via ctrl-x ctrl-e where the buffer is in /tmp).
+      local cmp_path = require 'cmp_path'
+      local orig_dirname = cmp_path._dirname
+      cmp_path._dirname = function(self, params, option)
+        local bufpath = vim.api.nvim_buf_get_name(params.context.bufnr)
+        if bufpath:match '^/tmp/' or bufpath:match '^/private/tmp/' then
+          option.get_cwd = function()
+            return vim.fn.getcwd()
+          end
+        end
+        return orig_dirname(self, params, option)
+      end
     end,
   },
 
