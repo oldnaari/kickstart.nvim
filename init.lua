@@ -653,7 +653,7 @@ require('lazy').setup({
   { 'Bilal2453/luvit-meta', lazy = true },
   { 'michaeljsmith/vim-indent-object' },
   { 'jeetsukumaran/vim-indentwise' },
-  { 'neoclide/coc.nvim' },
+  -- { 'neoclide/coc.nvim' },
   {
     -- Main LSP Configuration
     'neovim/nvim-lspconfig',
@@ -830,7 +830,7 @@ require('lazy').setup({
       local servers = {
         -- clangd = {},
         -- gopls = {},
-        -- pyright = {},
+        pyright = {},
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
