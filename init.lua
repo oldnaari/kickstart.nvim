@@ -442,6 +442,10 @@ require('lazy').setup({
         routes = {
           -- Skip routing notifications to messages view - nvim-notify handles display
           -- nvim-notify is configured with level = WARN, so only WARN/ERROR show
+          {
+            filter = { event = 'lsp', kind = 'progress', find = 'pyright' },
+            opts = { skip = true },
+          },
         },
         -- you can enable a preset for easier configuration
         presets = {
@@ -665,7 +669,7 @@ require('lazy').setup({
 
       -- Useful status updates for LSP.
       -- NOTE: `opts = {}` is the same as calling `require('fidget').setup({})`
-      { 'j-hui/fidget.nvim', opts = {} },
+      { 'j-hui/fidget.nvim', opts = { progress = { ignore = { 'pyright' } } } },
 
       -- Allows extra capabilities provided by nvim-cmp
       'hrsh7th/cmp-nvim-lsp',
@@ -870,9 +874,9 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
+        'black', -- Add this line
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
-
       require('mason-lspconfig').setup {
         handlers = {
           function(server_name)
@@ -935,6 +939,7 @@ require('lazy').setup({
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
+        python = { 'black' },
         -- Conform can also run multiple formatters sequentially
         -- python = { "isort", "black" },
         --
@@ -1123,8 +1128,8 @@ require('lazy').setup({
         n_lines = 500,
         custom_textobjects = {
           -- Use treesitter for function and parameter textobjects
-          f = ai.gen_spec.treesitter({ a = '@function.outer', i = '@function.inner' }),
-          a = ai.gen_spec.treesitter({ a = '@parameter.outer', i = '@parameter.inner' }),
+          f = ai.gen_spec.treesitter { a = '@function.outer', i = '@function.inner' },
+          a = ai.gen_spec.treesitter { a = '@parameter.outer', i = '@parameter.inner' },
         },
       }
 
@@ -1133,7 +1138,7 @@ require('lazy').setup({
       -- - saiw) - [S]urround [A]dd [I]nner [W]ord [)]Paren
       -- - sd'   - [S]urround [D]elete [']quotes
       -- - sr)'  - [S]urround [R]eplace [)] [']
-      require('mini.surround').setup({
+      require('mini.surround').setup {
         mappings = {
           add = 'ys',
           delete = 'ds',
@@ -1144,7 +1149,7 @@ require('lazy').setup({
           -- update_n_lines = 'sul',
         },
         -- Other options can be configured here if needed
-      })
+      }
 
       -- Simple and easy statusline.
       --  You could remove this setup call if you don't like it,
