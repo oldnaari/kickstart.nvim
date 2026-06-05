@@ -100,7 +100,7 @@ vim.g.nord_disable_background = true
 --  For more options, you can see `:help option-list`
 
 -- Make line numbers default
-vim.opt.relativenumber = true
+vim.opt.relativenumber = false
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
 -- vim.opt.relativenumber = true
@@ -205,6 +205,10 @@ vim.keymap.set('n', '<C-h>', '<C-w><C-h>', { desc = 'Move focus to the left wind
 vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right window' })
 vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
 vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
+
+-- Navigate changelist (older/newer change position)
+vim.keymap.set('n', 'H', 'g;', { desc = 'Go to older position in changelist' })
+vim.keymap.set('n', 'L', 'g,', { desc = 'Go to newer position in changelist' })
 
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
@@ -580,11 +584,26 @@ require('lazy').setup({
         -- You can put your default mappings / updates / etc. in here
         --  All the info you're looking for is in `:help telescope.setup()`
         --
-        -- defaults = {
-        --   mappings = {
-        --     i = { ['<c-enter>'] = 'to_fuzzy_refine' },
-        --   },
-        -- },
+        defaults = {
+          mappings = {
+            i = {
+              ['<CR>'] = function(prompt_bufnr)
+                local actions = require 'telescope.actions'
+                local action_state = require 'telescope.actions.state'
+                local picker = action_state.get_current_picker(prompt_bufnr)
+                local multi = picker:get_multi_selection()
+                if #multi > 0 then
+                  actions.close(prompt_bufnr)
+                  for _, entry in ipairs(multi) do
+                    vim.cmd('edit ' .. vim.fn.fnameescape(entry.path or entry.filename or entry.value))
+                  end
+                else
+                  actions.select_default(prompt_bufnr)
+                end
+              end,
+            },
+          },
+        },
         pickers = {
           colorscheme = {
             enable_preview = true,
@@ -874,7 +893,7 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
-        'black', -- Add this line
+        'ruff', -- Python formatter with range support
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
       require('mason-lspconfig').setup {
@@ -908,38 +927,10 @@ require('lazy').setup({
     },
     opts = {
       notify_on_error = false,
-      format_on_save = function(bufnr)
-        -- Disable "format_on_save lsp_fallback" for languages that don't
-        -- have a well standardized coding style. You can add additional
-        -- languages here or re-enable it for the disabled ones.
-        local disable_filetypes = { c = true, cpp = true }
-        local lsp_format_opt
-        if disable_filetypes[vim.bo[bufnr].filetype] then
-          lsp_format_opt = 'never'
-        else
-          lsp_format_opt = 'fallback'
-        end
-        -- For Lua files, use stylua only (no LSP formatting fallback)
-        if vim.bo[bufnr].filetype == 'lua' then
-          local stylua_path = vim.fn.exepath 'stylua' or vim.fn.exepath(vim.fn.stdpath 'data' .. '/mason/bin/stylua')
-          if stylua_path == '' then
-            -- If stylua is not available, skip formatting entirely
-            return { lsp_format = 'never' }
-          end
-          -- Use stylua only, no LSP fallback
-          return {
-            timeout_ms = 500,
-            lsp_format = 'never',
-          }
-        end
-        return {
-          timeout_ms = 500,
-          lsp_format = lsp_format_opt,
-        }
-      end,
+      format_on_save = false,
       formatters_by_ft = {
         lua = { 'stylua' },
-        python = { 'black' },
+        python = { 'ruff_format' },
         -- Conform can also run multiple formatters sequentially
         -- python = { "isort", "black" },
         --
