@@ -121,15 +121,24 @@ vim.opt.showmode = false
 --  See `:help 'clipboard'`
 vim.schedule(function()
   vim.opt.clipboard = 'unnamedplus'
+  -- WezTerm doesn't respond to OSC 52 paste queries on Linux/Wayland (wezterm/wezterm#2050,
+  -- PR #6239 unmerged as of 2026). Fall back to wl-paste when inside WezTerm on Linux.
+  local osc52 = require 'vim.ui.clipboard.osc52'
+  local wezterm_on_linux = vim.env.TERM_PROGRAM == 'WezTerm'
+    and vim.uv.os_uname().sysname == 'Linux'
+    and vim.fn.executable 'wl-paste' == 1
   vim.g.clipboard = {
     name = 'OSC 52',
     copy = {
-      ['+'] = require('vim.ui.clipboard.osc52').copy '+',
-      ['*'] = require('vim.ui.clipboard.osc52').copy '*',
+      ['+'] = osc52.copy '+',
+      ['*'] = osc52.copy '*',
     },
-    paste = {
-      ['+'] = require('vim.ui.clipboard.osc52').paste '+',
-      ['*'] = require('vim.ui.clipboard.osc52').paste '*',
+    paste = wezterm_on_linux and {
+      ['+'] = { 'wl-paste', '--no-newline', '--type', 'text/plain' },
+      ['*'] = { 'wl-paste', '--no-newline', '--primary', '--type', 'text/plain' },
+    } or {
+      ['+'] = osc52.paste '+',
+      ['*'] = osc52.paste '*',
     },
   }
 end)
@@ -1227,76 +1236,46 @@ require('lazy').setup({
       latex = { enabled = false },
     },
   },
-  { -- Highlight, edit, and navigate code
+  { -- Parser manager + queries for tree-sitter features built into Neovim
     'nvim-treesitter/nvim-treesitter',
-    dependencies = {
-      'nvim-treesitter/nvim-treesitter-textobjects',
-    },
+    lazy = false,
     build = ':TSUpdate',
-    main = 'nvim-treesitter.configs', -- Sets main module to use for opts
-    -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
-    opts = {
-      ensure_installed = { 'bash', 'c', 'python', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
-      -- Autoinstall languages that are not installed
-      auto_install = true,
-      highlight = {
-        enable = true,
-        -- Some languages depend on vim's regex highlighting system (such as Ruby) for indent rules.
-        --  If you are experiencing weird indenting issues, add the language to
-        --  the list of additional_vim_regex_highlighting and disabled languages for indent.
-        additional_vim_regex_highlighting = { 'ruby', 'python' },
-      },
-      indent = { enable = true, disable = { 'ruby' } },
-      textobjects = {
-        select = {
-          enable = true,
-          lookahead = true, -- Automatically jump forward to matching textobject
-          keymaps = {
-            -- NOTE: af/if and aa/ia are handled by mini.ai with treesitter specs
-            ['ac'] = { query = '@class.outer', desc = 'Select outer class' },
-            ['ic'] = { query = '@class.inner', desc = 'Select inner class' },
-            ['a='] = { query = '@assignment.outer', desc = 'Select outer assignment' },
-            ['i='] = { query = '@assignment.inner', desc = 'Select inner assignment' },
-            ['l='] = { query = '@assignment.lhs', desc = 'Select left hand side of assignment' },
-            ['r='] = { query = '@assignment.rhs', desc = 'Select right hand side of assignment' },
-          },
-        },
-        move = {
-          enable = true,
-          set_jumps = true, -- Add jumps to the jumplist
-          goto_next_start = {
-            [']m'] = { query = '@function.outer', desc = 'Next function start' },
-            [']]'] = { query = '@class.outer', desc = 'Next class start' },
-          },
-          goto_next_end = {
-            [']M'] = { query = '@function.outer', desc = 'Next function end' },
-            [']['] = { query = '@class.outer', desc = 'Next class end' },
-          },
-          goto_previous_start = {
-            ['[m'] = { query = '@function.outer', desc = 'Prev function start' },
-            ['[['] = { query = '@class.outer', desc = 'Prev class start' },
-          },
-          goto_previous_end = {
-            ['[M'] = { query = '@function.outer', desc = 'Prev function end' },
-            ['[]'] = { query = '@class.outer', desc = 'Prev class end' },
-          },
-        },
-        swap = {
-          enable = true,
-          swap_next = {
-            ['<leader>a'] = { query = '@parameter.inner', desc = 'Swap with next parameter' },
-          },
-          swap_previous = {
-            ['<leader>A'] = { query = '@parameter.inner', desc = 'Swap with previous parameter' },
-          },
-        },
-      },
-    },
-    -- There are additional nvim-treesitter modules that you can use to interact
-    -- with nvim-treesitter. You should go explore a few and see what interests you:
-    --
-    --    - Incremental selection: Included, see `:help nvim-treesitter-incremental-selection-mod`
-    --    - Show your current context: https://github.com/nvim-treesitter/nvim-treesitter-context
+    config = function()
+      require('nvim-treesitter').install({ 'bash', 'c', 'python', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' })
+    end,
+  },
+  { -- Syntax-aware text objects and movements
+    'nvim-treesitter/nvim-treesitter-textobjects',
+    dependencies = { 'nvim-treesitter/nvim-treesitter' },
+    config = function()
+      require('nvim-treesitter-textobjects').setup {
+        select = { lookahead = true },
+        move = { set_jumps = true },
+      }
+
+      -- NOTE: af/if and aa/ia are handled by mini.ai with treesitter specs
+      local select = require 'nvim-treesitter-textobjects.select'
+      vim.keymap.set({ 'x', 'o' }, 'ac', function() select.select_textobject('@class.outer', 'textobjects') end, { desc = 'Select outer class' })
+      vim.keymap.set({ 'x', 'o' }, 'ic', function() select.select_textobject('@class.inner', 'textobjects') end, { desc = 'Select inner class' })
+      vim.keymap.set({ 'x', 'o' }, 'a=', function() select.select_textobject('@assignment.outer', 'textobjects') end, { desc = 'Select outer assignment' })
+      vim.keymap.set({ 'x', 'o' }, 'i=', function() select.select_textobject('@assignment.inner', 'textobjects') end, { desc = 'Select inner assignment' })
+      vim.keymap.set({ 'x', 'o' }, 'l=', function() select.select_textobject('@assignment.lhs', 'textobjects') end, { desc = 'Select lhs of assignment' })
+      vim.keymap.set({ 'x', 'o' }, 'r=', function() select.select_textobject('@assignment.rhs', 'textobjects') end, { desc = 'Select rhs of assignment' })
+
+      local move = require 'nvim-treesitter-textobjects.move'
+      vim.keymap.set({ 'n', 'x', 'o' }, ']m', function() move.goto_next_start('@function.outer', 'textobjects') end, { desc = 'Next function start' })
+      vim.keymap.set({ 'n', 'x', 'o' }, ']]', function() move.goto_next_start('@class.outer', 'textobjects') end, { desc = 'Next class start' })
+      vim.keymap.set({ 'n', 'x', 'o' }, ']M', function() move.goto_next_end('@function.outer', 'textobjects') end, { desc = 'Next function end' })
+      vim.keymap.set({ 'n', 'x', 'o' }, '][', function() move.goto_next_end('@class.outer', 'textobjects') end, { desc = 'Next class end' })
+      vim.keymap.set({ 'n', 'x', 'o' }, '[m', function() move.goto_previous_start('@function.outer', 'textobjects') end, { desc = 'Prev function start' })
+      vim.keymap.set({ 'n', 'x', 'o' }, '[[', function() move.goto_previous_start('@class.outer', 'textobjects') end, { desc = 'Prev class start' })
+      vim.keymap.set({ 'n', 'x', 'o' }, '[M', function() move.goto_previous_end('@function.outer', 'textobjects') end, { desc = 'Prev function end' })
+      vim.keymap.set({ 'n', 'x', 'o' }, '[]', function() move.goto_previous_end('@class.outer', 'textobjects') end, { desc = 'Prev class end' })
+
+      local swap = require 'nvim-treesitter-textobjects.swap'
+      vim.keymap.set('n', '<leader>a', function() swap.swap_next('@parameter.inner') end, { desc = 'Swap with next parameter' })
+      vim.keymap.set('n', '<leader>A', function() swap.swap_previous('@parameter.inner') end, { desc = 'Swap with previous parameter' })
+    end,
   },
   -- {
   --   'numirias/semshi',
