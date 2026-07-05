@@ -1244,6 +1244,19 @@ require('lazy').setup({
       require('nvim-treesitter').setup({
         ensure_installed = { 'bash', 'c', 'python', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
       })
+
+      -- The 'main' branch of nvim-treesitter no longer has a `highlight.enable`
+      -- option: parsing/highlighting must be started explicitly per buffer.
+      -- Without this, the syntax tree is never parsed for most filetypes, so
+      -- treesitter-based textobjects (mini.ai's `aa`/`ia`, etc.) silently find
+      -- nothing. Lua/Markdown/help appear to work regardless because Neovim's
+      -- own bundled ftplugins already call `vim.treesitter.start()` for those.
+      vim.api.nvim_create_autocmd('FileType', {
+        callback = function(args)
+          local ok = pcall(vim.treesitter.start, args.buf)
+          if ok then vim.bo[args.buf].indentexpr = 'v:lua.vim.treesitter.indentexpr()' end
+        end,
+      })
     end,
   },
   { -- Syntax-aware text objects and movements
