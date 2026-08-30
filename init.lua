@@ -290,6 +290,124 @@ vim.api.nvim_create_autocmd('BufWritePost', {
   end,
 })
 
+-- zen-mode opens its float *over* the window that already holds the buffer, so
+-- `:wq` closes only the float: zen collapses back to a normal window and Neovim
+-- stays open, with the prompt unsubmitted until you quit a second time. Confirmed
+-- interactively, and reproducible in bare `nvim -u NONE` with only zen-mode on the
+-- runtimepath -- it is zen's behaviour, not anything to do with Claude.
+--
+-- Scoped to prompt buffers, so `:wq` keeps its ordinary meaning everywhere else and
+-- no `:wqa` habit gets built.
+vim.api.nvim_create_autocmd('QuitPre', {
+  desc = 'Let `:wq` actually exit a zen-ed Claude prompt buffer',
+  group = claude_group,
+  pattern = claude_prompt_pattern,
+  callback = function()
+    -- `qa`, deliberately not `qa!`: if anything else holds unsaved changes it
+    -- should stop the quit, not lose them.
+    vim.schedule(function()
+      pcall(vim.cmd, 'qa')
+    end)
+  end,
+})
+
+-- Claude's answers, written by the `Stop` hook at ~/.claude/hooks/claude-answer.sh.
+-- The hook keys the file by cwd, the same slug convention ~/.claude/projects/ uses,
+-- and Claude launches $EDITOR with the project as cwd -- so the right answer
+-- resolves here with nothing to pick.
+local claude_answers_dir = vim.fn.expand '~/.claude/answers'
+
+local function claude_answer_file()
+  local direct = string.format('%s/%s.md', claude_answers_dir, (vim.fn.getcwd():gsub('/', '-')))
+  if vim.uv.fs_stat(direct) then
+    return direct
+  end
+  -- Editing from somewhere other than the project: fall back to whichever answer
+  -- was written last, skipping the YYYY-MM archives (history, not a reading surface).
+  local newest, newest_time = nil, -1
+  for _, path in ipairs(vim.fn.glob(claude_answers_dir .. '/*.md', false, true)) do
+    if not vim.fn.fnamemodify(path, ':t:r'):match '^%d%d%d%d%-%d%d$' then
+      local stat = vim.uv.fs_stat(path)
+      if stat and stat.mtime.sec > newest_time then
+        newest, newest_time = path, stat.mtime.sec
+      end
+    end
+  end
+  return newest
+end
+
+-- Deliberately NOT opened, split, floated, or even added to the buffer list on
+-- its own. Two reasons, the second learned the hard way:
+--
+--  1. A second *window* would keep Neovim alive after `:wq`, and Claude waits for
+--     the editor process to exit before submitting -- the prompt would never send.
+--  2. A second listed *buffer* present at `:wq` time was observed to stop Neovim
+--     exiting while zen-mode is open. Headless results were inconsistent, so the
+--     mechanism is unconfirmed -- but the compose path is not the place to carry an
+--     unconfirmed risk.
+--
+-- So pressing `<leader>o` is what pulls the answer in. Until then this changes
+-- nothing about `ctrl+g`. Once opened, it is a listed buffer like any other, so
+-- `<leader><leader>` swaps between answer and compose inside the same zen float
+-- (changing the buffer in a window does not close zen; entering another does).
+-- Add the answer to the buffer list without showing it, so `<leader><leader>`
+-- (Telescope buffers) lists it straight away. Deliberately not a split, tab or
+-- float: a second *window* keeps Neovim alive after `:wq`, and Claude waits for the
+-- editor process to exit before submitting. One window, two buffers -- changing the
+-- buffer inside the zen float does not close zen, only entering another window does.
+vim.api.nvim_create_autocmd('BufWinEnter', {
+  desc = "Offer Claude's last answer as a buffer while composing",
+  group = claude_group,
+  pattern = claude_prompt_pattern,
+  callback = function()
+    local answer = claude_answer_file()
+    if answer then
+      pcall(vim.cmd, 'badd ' .. vim.fn.fnameescape(answer))
+    end
+  end,
+})
+
+vim.keymap.set('n', '<leader>o', function()
+  local answer = claude_answer_file()
+  if answer then
+    vim.cmd('edit ' .. vim.fn.fnameescape(answer))
+  else
+    vim.notify('No Claude answer recorded yet', vim.log.levels.INFO)
+  end
+end, { desc = "Claude's [O]utput" })
+
+-- Read-only, so it can never be edited into the prompt archive, can never be
+-- written by a stray `:wq`, and can never block `:q` with unsaved changes.
+-- On BufWinEnter rather than BufRead: it must land after the markdown ftplugin,
+-- which turns spell on -- Claude's prose is not yours to correct.
+-- `nomodifiable` does not block `autoread`'s reload (verified), so the buffer
+-- still refreshes in place as later turns land.
+vim.api.nvim_create_autocmd('BufWinEnter', {
+  desc = 'Claude answer buffers are for reading',
+  group = claude_group,
+  pattern = claude_answers_dir .. '/*.md',
+  callback = function()
+    vim.bo.modifiable = false
+    vim.bo.readonly = true
+    vim.opt_local.spell = false
+    vim.cmd 'normal! G'
+  end,
+})
+
+-- Pick up answers written while the buffer sat open.
+vim.api.nvim_create_autocmd({ 'BufEnter', 'CursorHold', 'FocusGained' }, {
+  desc = 'Refresh Claude answer buffers from disk',
+  group = claude_group,
+  pattern = claude_answers_dir .. '/*.md',
+  callback = function()
+    -- Scheduled: `checktime` is blocked by textlock inside an autocmd, and the
+    -- failure is silent, so calling it directly here looks fine and never refreshes.
+    vim.schedule(function()
+      pcall(vim.cmd, 'checktime')
+    end)
+  end,
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
