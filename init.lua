@@ -235,6 +235,61 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   end,
 })
 
+-- [[ Claude Code prompt buffers ]]
+--  `ctrl+g` in Claude Code opens the prompt in $EDITOR on a temp file named
+--  `claude-prompt-<hash>.md`, and submits it on write. The pattern is specific
+--  enough that neither of these can touch an ordinary markdown file.
+local claude_prompt_pattern = 'claude-prompt*.md'
+local claude_group = vim.api.nvim_create_augroup('claude-prompt', { clear = true })
+
+-- Compose prompts at a readable measure rather than full window width.
+vim.api.nvim_create_autocmd('BufWinEnter', {
+  desc = 'Open Claude prompt buffers in zen mode',
+  group = claude_group,
+  pattern = claude_prompt_pattern,
+  callback = function()
+    -- Deferred on purpose. Opening zen during the buffer-read sequence creates
+    -- the float but leaves focus in the original window, so the cursor renders
+    -- at the terminal's top-left and motions drive an invisible window.
+    vim.schedule(function()
+      local ok, zen = pcall(require, 'zen-mode')
+      if not ok then
+        return
+      end
+      -- BufWinEnter fires again whenever the buffer is shown in another window;
+      -- don't reopen over an existing session.
+      local shown, view = pcall(require, 'zen-mode.view')
+      if shown and view.is_open() then
+        return
+      end
+      zen.open()
+    end)
+  end,
+})
+
+-- Claude discards the temp file after submitting, so a prompt that took real
+-- effort to write leaves no trace. Keep a copy; behaviour is otherwise unchanged.
+vim.api.nvim_create_autocmd('BufWritePost', {
+  desc = 'Archive Claude prompts so they can be searched and reused',
+  group = claude_group,
+  pattern = claude_prompt_pattern,
+  callback = function(args)
+    local body = table.concat(vim.api.nvim_buf_get_lines(args.buf, 0, -1, false), '\n')
+    if vim.trim(body) == '' then
+      return
+    end
+    local dir = vim.fn.expand '~/.claude/prompt-archive'
+    vim.fn.mkdir(dir, 'p')
+    local path = string.format('%s/%s.md', dir, os.date '%Y-%m')
+    local entry = string.format('\n\n---\n\n## %s\n\n%s\n', os.date '%Y-%m-%d %H:%M', body)
+    local fh = io.open(path, 'a')
+    if fh then
+      fh:write(entry)
+      fh:close()
+    end
+  end,
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -365,18 +420,18 @@ require('lazy').setup({
   {
     'folke/zen-mode.nvim',
     opts = {
-      -- Your configuration options for zen-mode.nvim go here
-      -- For example:
-      -- width = 120,
-      -- options = {
-      --   signcolumn = "no",
-      --   number = false,
-      --   relativenumber = false,
-      -- },
+      -- 72 columns keeps prose inside the 45-75 character measure that the
+      -- typography research converges on (66 is the usual single-column ideal).
+      -- The default of 120 is well outside it.
+      window = {
+        width = 72,
+        options = {
+          signcolumn = 'no',
+          number = false,
+          relativenumber = false,
+        },
+      },
     },
-    -- You can also add lazy loading conditions here if desired,
-    -- for example, to load only when a specific command is run:
-    -- cmd = "ZenMode",
   },
   -- lua/plugins/pencil.lua
   {
@@ -411,26 +466,6 @@ require('lazy').setup({
       -- Only show WARN and ERROR level notifications
       level = vim.log.levels.WARN,
     },
-  },
-  {
-    'plasticboy/vim-markdown',
-    ft = { 'markdown' },
-    init = function()
-      -- optional settings
-      vim.g.vim_markdown_folding_disabled = 1
-      vim.g.vim_markdown_conceal_code_blocks = 0
-      vim.g.vim_markdown_conceal = 2
-      vim.g.vim_markdown_math = 1
-      vim.g.vim_markdown_strikethrough = 1
-      vim.opt.conceallevel = 2
-      vim.g.vim_markdown_fenced_languages = {
-        'python',
-        'lua',
-        'bash',
-        'json',
-        'yaml',
-      }
-    end,
   },
   {
     'folke/noice.nvim',
@@ -865,6 +900,9 @@ require('lazy').setup({
         -- clangd = {},
         -- gopls = {},
         pyright = {},
+        -- markdown LSP: powers <leader>ds (lsp_document_symbols) as a heading
+        -- outline, plus [[wiki-link]] completion.
+        marksman = {},
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
