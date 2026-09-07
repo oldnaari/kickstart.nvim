@@ -25,3 +25,10 @@ end, { buffer = true, desc = '[T]oggle [W]rap' })
 
 -- With nowrap the cursor drives horizontal scrolling; keep some context visible.
 vim.opt_local.sidescrolloff = 8
+
+-- Jump by heading. `<leader>ds` (marksman document symbols) covers this too, but
+-- flattens the tree; see lua/custom/markdown_toc.lua for why this one is treesitter.
+-- `require`d lazily so the module stays off the startup path.
+vim.keymap.set('n', '<leader>dt', function()
+  require('custom.markdown_toc').open()
+end, { buffer = true, desc = '[D]ocument [T]OC' })
