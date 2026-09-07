@@ -542,7 +542,7 @@ require('lazy').setup({
       -- typography research converges on (66 is the usual single-column ideal).
       -- The default of 120 is well outside it.
       window = {
-        width = 72,
+        width = 82,
         options = {
           signcolumn = 'no',
           number = false,
@@ -569,7 +569,14 @@ require('lazy').setup({
       -- refer to the configuration section below
       dimming = {
         alpha = 0.25, -- Adjust the dimming amount as needed
-        color = { 'Normal', '#2E3440' }, -- Fallback to Nord's background color
+        -- Twilight walks this list for the first entry that HAS a foreground and
+        -- blends it towards `term_bg`. Normal no longer has one (see the nord
+        -- spec below), so the fallback is what gets used -- and it must be a
+        -- foreground colour. The old fallback was `#2E3440`, the *background*:
+        -- blending it towards an identical `term_bg` yields `#2E3440` again, i.e.
+        -- dimmed text the same colour as the background. nord4 keeps the muted
+        -- grey this produced when Normal still had a foreground.
+        color = { 'Normal', '#D8DEE9' },
         term_bg = '#2E3440', -- Ensure terminal background is also set
         inactive = false, -- or true, depending on preference
       },
@@ -1259,14 +1266,39 @@ require('lazy').setup({
     -- 'tinted-theming/tinted-vim',
     priority = 1000, -- Make sure to load this before all the other start plugins.
     init = function()
+      -- Every highlight override lives in one function, replayed on ColorScheme.
+      -- Setting them once after `:colorscheme` looks like it works, but any later
+      -- colorscheme command silently wipes them all.
+      local function overrides()
+        vim.cmd.hi 'Comment gui=none'
+        vim.api.nvim_set_hl(0, 'LineNr', { fg = require('nord.colors').nord1_gui })
+
+        -- Hand the foreground back to the terminal. `nord_disable_background` at
+        -- the top of this file already gives up the background; this extends the
+        -- same idea to the foreground, so text with no highlight of its own uses
+        -- whatever the terminal's default is.
+        --
+        -- It has to be the *global* Normal. `winhighlight` can point a window at
+        -- a different colour, but cannot express "no colour": redirecting Normal
+        -- to a group with `guifg=NONE` falls back to Normal and changes nothing.
+        -- So this cannot be scoped to markdown without inverting the exception
+        -- onto every other window.
+        vim.cmd 'highlight Normal guifg=NONE guibg=NONE'
+
+        -- Markdown colours for both rendered and raw views; see that file.
+        require('custom.markdown_theme').apply()
+      end
+
       -- Load the colorscheme here.
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
       vim.cmd.colorscheme 'nord'
+      overrides()
 
-      -- You can configure highlights by doing something like:
-      vim.cmd.hi 'Comment gui=none'
-      vim.api.nvim_set_hl(0, 'LineNr', { fg = require('nord.colors').nord1_gui })
+      vim.api.nvim_create_autocmd('ColorScheme', {
+        group = vim.api.nvim_create_augroup('custom-highlight-overrides', { clear = true }),
+        callback = overrides,
+      })
     end,
   },
 
@@ -1292,11 +1324,13 @@ require('lazy').setup({
         },
       }
 
-      -- Add/delete/replace surroundings (brackets, quotes, etc.)
+      -- Add/delete/replace surroundings (brackets, quotes, etc.), mapped
+      -- vim-surround style rather than mini's own `sa`/`sd`/`sr`.
       --
-      -- - saiw) - [S]urround [A]dd [I]nner [W]ord [)]Paren
-      -- - sd'   - [S]urround [D]elete [']quotes
-      -- - sr)'  - [S]urround [R]eplace [)] [']
+      -- - ysiw) - [Y]ank [S]urround [I]nner [W]ord [)]Paren
+      -- - ds'   - [D]elete [S]urround [']quotes
+      -- - cs)'  - [C]hange [S]urround [)] to [']
+      -- - SB    - bold the visual selection (see custom_surroundings)
       require('mini.surround').setup {
         mappings = {
           add = 'ys',
@@ -1307,7 +1341,42 @@ require('lazy').setup({
           -- highlight = 'sh',
           -- update_n_lines = 'sul',
         },
-        -- Other options can be configured here if needed
+        -- Markdown emphasis. Without these, `**bold**` needs two passes of `ys*`
+        -- and the natural "re-select and repeat" via `gv` corrupts the text --
+        -- `gv` restores the byte range from *before* the first `*` was inserted,
+        -- so `v2e ys* gv ys*` yields `**hello worl*d*`.
+        --
+        -- Identifiers are deliberate: `b` and `q` are already built-in aliases
+        -- for brackets and quotes, so bold takes `B`. `B`, `i`, `c` and `s` are
+        -- otherwise unused (they fall through to their literal character).
+        custom_surroundings = {
+          B = { input = { '%*%*().-()%*%*' }, output = { left = '**', right = '**' } }, -- bold
+          i = { input = { '%*().-()%*' }, output = { left = '*', right = '*' } }, -- italic
+          c = { input = { '`().-()`' }, output = { left = '`', right = '`' } }, -- inline code
+          s = { input = { '~~().-()~~' }, output = { left = '~~', right = '~~' } }, -- strikethrough
+        },
+      }
+
+      -- Use `S` for the visual-mode add, not `ys`.
+      --
+      -- `ys` was the only visual-mode mapping starting with `y`, which made plain
+      -- `y` ambiguous: every yank from visual mode waited out `timeoutlen` before
+      -- doing anything. Normal mode is unaffected -- `y`/`d`/`c` are always
+      -- followed by a motion there, so the ambiguity resolves on the next key.
+      -- This is the same trade vim-surround makes; it costs the built-in `S`
+      -- (change selected lines linewise).
+      vim.keymap.del('x', 'ys')
+      vim.keymap.set('x', 'S', [[:<C-u>lua MiniSurround.add('visual')<CR>]], { silent = true, desc = 'Add surrounding to selection' })
+
+      -- Pattern-based highlighting for things treesitter has no node for.
+      --
+      -- Markdown's grammar does not tokenise parentheses or quotes inside
+      -- running text -- a plain paragraph carries no captures beyond `@spell` --
+      -- so dimming `(an aside)` cannot be a treesitter query. This is the regex
+      -- layer that can, with treesitter consulted only to decide whether a match
+      -- is really prose. See lua/custom/markdown_prose.lua.
+      require('mini.hipatterns').setup {
+        highlighters = require('custom.markdown_prose').highlighters(),
       }
 
       -- Simple and easy statusline.
@@ -1358,6 +1427,11 @@ require('lazy').setup({
         border = 'thin',
         left_pad = 2,
         right_pad = 2,
+        -- A space of code background either side of inline `code`. This is
+        -- inline virtual text, so it exists only while rendering: in insertish
+        -- and visual modes the padding is gone and the backticks are back. That
+        -- asymmetry is unavoidable -- padding is by definition inserted space.
+        inline_pad = 1,
       },
 
       bullet = {
