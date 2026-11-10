@@ -32,3 +32,10 @@ vim.opt_local.sidescrolloff = 8
 vim.keymap.set('n', '<leader>dt', function()
   require('custom.markdown_toc').open()
 end, { buffer = true, desc = '[D]ocument [T]OC' })
+
+-- Judgment-based review by `claude -p` (buried request, unclear referent, packed
+-- instruction) into quickfix -- what Vale's patterns cannot catch. Only ever on
+-- demand; see lua/custom/prose_review.lua.
+vim.keymap.set('n', '<leader>pr', function()
+  require('custom.prose_review').run(0)
+end, { buffer = true, desc = '[P]rose [R]eview' })
