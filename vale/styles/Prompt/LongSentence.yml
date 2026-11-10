@@ -1,0 +1,7 @@
+extends: occurrence
+message: "Long sentence (more than 25 words). The reader holds the clause open too long; split it, or move the main verb closer to the subject. (Williams, 'Style: Lessons in Clarity and Grace'; plain-language guidance)"
+link: https://www.plainlanguage.gov/guidelines/
+level: warning
+scope: sentence
+max: 25
+token: '[\w''’-]+'

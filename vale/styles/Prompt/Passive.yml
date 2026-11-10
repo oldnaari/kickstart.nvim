@@ -1,0 +1,7 @@
+extends: existence
+message: "'%s' looks passive. If the actor matters, make it the subject ('we evaluated the model', not 'the model was evaluated'). (Williams: characters as subjects, actions as verbs; plain-language guidance)"
+link: https://www.plainlanguage.gov/guidelines/
+level: suggestion
+ignorecase: true
+tokens:
+  - '(?:am|are|were|being|is|was|be|been)\s+(?:\w+ed|built|done|drawn|given|found|made|run|seen|shown|taken|written|known|held|kept|left|set|sent|chosen|broken|begun|brought|bought|caught|gone|heard|read|told|thought|understood)'

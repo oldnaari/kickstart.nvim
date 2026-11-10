@@ -1068,6 +1068,9 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'ruff', -- Python formatter with range support
+        'vale-ls', -- Prose linter LSP for markdown; config and rules in vale/
+        'vale', -- The binary vale-ls runs. Mason's bin is on Neovim's PATH, so
+        -- this is the only copy (vale-ls's own download is off, below).
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -1079,6 +1082,20 @@ require('lazy').setup({
       for server_name, server in pairs(servers) do
         vim.lsp.config(server_name, server)
       end
+
+      -- Vale on every markdown buffer, Claude prompt temp files included. Those
+      -- live outside any project, where no `.vale.ini` exists, so the config path
+      -- is passed explicitly: one global config, kept in this repo so it travels
+      -- to remote hosts. Only `configPath` is needed -- a fixed root_dir or
+      -- VALE_CONFIG_PATH were tried and changed nothing (verified headless).
+      vim.lsp.config('vale_ls', {
+        filetypes = { 'markdown' },
+        init_options = {
+          configPath = vim.fn.stdpath 'config' .. '/vale/.vale.ini',
+          installVale = false, -- use Mason's vale, never a second downloaded copy
+          syncOnStartup = false, -- no Packages to sync; skip the startup cost
+        },
+      })
       require('mason-lspconfig').setup {}
     end,
   },

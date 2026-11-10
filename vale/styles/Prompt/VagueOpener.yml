@@ -1,0 +1,8 @@
+extends: existence
+message: "'%s' opens the sentence with a pronoun that may have no clear referent. Name the thing ('This change makes...') or join it to the previous sentence. (Williams: put familiar information first, but make it identifiable)"
+link: https://www.plainlanguage.gov/guidelines/
+level: warning
+scope: sentence
+nonword: true
+tokens:
+  - '^(?:This|That|These|Those|It)\s+(?:is|are|was|were|will|would|can|could|should|may|might|must|means|makes|has|have|does|do)\b'
