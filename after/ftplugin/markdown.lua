@@ -43,3 +43,16 @@ end, { buffer = true, desc = '[D]ocument [T]OC' })
 vim.keymap.set('n', '<leader>pr', function()
   require('custom.prose_review').run(0)
 end, { buffer = true, desc = '[P]rose [R]eview' })
+
+-- Alternatives for the word under the cursor; see lua/custom/word_alternatives.lua.
+-- Synonyms = same meaning (WordNet). Fill = what fits here (language model).
+vim.keymap.set('n', '<leader>ps', function()
+  require('custom.word_alternatives').pick_synonym()
+end, { buffer = true, desc = '[P]rose [S]ynonyms' })
+vim.keymap.set('n', '<leader>pf', function()
+  require('custom.word_alternatives').pick_fill()
+end, { buffer = true, desc = '[P]rose [F]ill (what fits here)' })
+
+-- `<C-x><C-t>` in insert mode completes the word before the cursor with its
+-- WordNet synonyms.
+vim.opt_local.thesaurusfunc = "v:lua.require'custom.word_alternatives'.complete"

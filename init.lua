@@ -186,6 +186,18 @@ vim.opt.scrolloff = 10
 -- Must run before any buffer turns spell on; see lua/custom/spell.lua.
 require('custom.spell').setup()
 
+-- Word alternatives: :Synonyms (WordNet, same meaning) and :Fill (masked
+-- language model, what fits in context). See lua/custom/word_alternatives.lua.
+-- bin/ goes on PATH so `:r !syn happy` and `:w !fill` work on every machine
+-- without any shell setup.
+vim.env.PATH = vim.fn.stdpath 'config' .. '/bin:' .. vim.env.PATH
+vim.api.nvim_create_user_command('Synonyms', function(opts)
+  require('custom.word_alternatives').pick_synonym(opts.args ~= '' and opts.args or nil)
+end, { nargs = '?', desc = 'Replace the word under the cursor with a synonym, or yank a synonym of {word} (WordNet)' })
+vim.api.nvim_create_user_command('Fill', function()
+  require('custom.word_alternatives').pick_fill()
+end, { desc = 'Words that fit in place of the one under the cursor (masked language model)' })
+
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 

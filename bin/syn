@@ -1,0 +1,80 @@
+#!/bin/sh
+# Synonyms from WordNet, offline, grouped by meaning (most common first).
+#
+#     syn happy
+#     syn give up
+#
+# Output, one block per sense:
+#
+#     adj 2: felicitous, happy — marked by good fortune
+#       fortunate — having unexpected good fortune
+#
+# The header line is the sense itself: words that mean the same, then the
+# definition. Indented lines are related words: similar adjectives, or broader
+# terms for nouns and verbs. lua/custom/word_alternatives.lua parses exactly
+# this format, so keep the two in step.
+#
+# Inflected words are looked up by base form (ran -> run), so the suggestions
+# come back in base form too.
+
+if ! command -v wn >/dev/null 2>&1; then
+  echo "syn: WordNet is not installed. Install it with: brew install wordnet (macOS) or sudo apt install wordnet (Debian/Ubuntu)" >&2
+  exit 127
+fi
+
+if [ $# -eq 0 ]; then
+  echo "usage: syn WORD..." >&2
+  exit 2
+fi
+
+word="$*"
+
+# One wn call for all four parts of speech, with glosses (-g). wn's exit code
+# is a count of senses, not an error status, so it is ignored.
+out=$(wn "$word" -synsn -synsv -synsa -synsr -g | awk '
+  # Section header, e.g. "Similarity of adj happy" or
+  # "Synonyms/Hypernyms (Ordered by Estimated Frequency) of verb run".
+  /^(Synonyms|Similarity)/ && / of (noun|verb|adj|adv) / {
+    pos = $0
+    sub(/^.* of /, "", pos)
+    sub(/ .*$/, "", pos)
+    next
+  }
+  /^Sense [0-9]+/ { sense = $2; header = 1; next }
+  /^ +=> / {
+    line = $0
+    sub(/^ +=> /, "", line)
+    split_gloss(line)
+    printf "  %s%s\n", words, gloss
+    next
+  }
+  header && NF {
+    split_gloss($0)
+    printf "%s %s: %s%s\n", pos, sense, words, gloss
+    header = 0
+  }
+
+  # Split "w1, w2 (vs. x) -- (definition; \"example\")" into words and gloss.
+  function split_gloss(s,    i, g, j) {
+    i = index(s, " -- (")
+    if (i) {
+      words = substr(s, 1, i - 1)
+      g = substr(s, i + 5)
+      j = index(g, "; \"")
+      if (j) g = substr(g, 1, j - 1); else sub(/\)$/, "", g)
+      gloss = " — " g
+    } else {
+      words = s
+      gloss = ""
+    }
+    # Drop WordNet annotations: (vs. unhappy), (prenominal), (predicate), (a), (p), (ip).
+    gsub(/ ?\((vs\. [^)]*|prenominal|predicate|a|p|ip)\)/, "", words)
+  }
+')
+
+if [ -z "$out" ]; then
+  echo "syn: no WordNet entry for '$word'" >&2
+  exit 1
+fi
+
+printf '%s\n' "$out"

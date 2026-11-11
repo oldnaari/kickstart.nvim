@@ -1,0 +1,155 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# # Pinned so every machine gets the versions this was tested with.
+# dependencies = ["torch==2.15.0", "transformers==5.22.2"]
+#
+# # PyPI's Linux torch wheels pull in CUDA, several GB. The CPU build is enough.
+# [[tool.uv.index]]
+# name = "pytorch-cpu"
+# url = "https://download.pytorch.org/whl/cpu"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+# ///
+"""Suggest words for a slot in text, from a masked language model, offline.
+
+Reads text on stdin with one marker (default `*`) where a word goes, and prints
+the words the model thinks fit there, best first, with their probability:
+
+    echo 'The results were * better than we expected.' | fill
+    fill -n 40 -m '@@' < draft.md
+
+The model reads both sides of the slot, up to about 512 tokens in total (a few
+paragraphs, centred on the slot), so the suggestions fit the context. They are
+not synonyms: any word that fits is fair game, including opposites. For
+synonyms use `syn`.
+
+Only words the model stores as one token are suggested, which covers common
+words but not long or rare ones.
+
+uv provides Python and the packages on first run. The model, distilroberta-base
+(about 330 MB), downloads into the Hugging Face cache on first use and is
+loaded offline after that.
+"""
+
+import argparse
+import contextlib
+import os
+import sys
+
+MODEL = "distilbert/distilroberta-base"
+MAX_TOKENS = 512  # the model's context limit, special tokens included
+
+
+@contextlib.contextmanager
+def quiet_stderr():
+    """Silence fd 2, yielding the real one.
+
+    torch and transformers print warnings and a progress bar on every load, and
+    `:r !fill` reads stderr into the buffer along with stdout (shellredir is
+    2>&1). Exceptions still surface: fd 2 is restored before they propagate.
+    """
+    sys.stderr.flush()
+    real = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 2)
+    try:
+        yield real
+    finally:
+        sys.stderr.flush()
+        os.dup2(real, 2)
+        os.close(devnull)
+        os.close(real)
+
+
+def load_model(real_stderr):
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    from transformers import AutoModelForMaskedLM, AutoTokenizer
+
+    try:  # cached copy first: no network round trip, works offline
+        tokenizer = AutoTokenizer.from_pretrained(MODEL, local_files_only=True)
+        model = AutoModelForMaskedLM.from_pretrained(MODEL, local_files_only=True)
+    except OSError:
+        os.write(real_stderr, f"fill: downloading {MODEL} (one time, about 330 MB)...\n".encode())
+        tokenizer = AutoTokenizer.from_pretrained(MODEL)
+        model = AutoModelForMaskedLM.from_pretrained(MODEL)
+    model.eval()
+    return tokenizer, model
+
+
+def is_word(s):
+    return s.replace("-", "").replace("'", "").replace("’", "").isalpha()
+
+
+def suggest(text, marker, count):
+    left, right = text.split(marker)
+
+    # The slot stands for a whole word. After a space, RoBERTa's words carry the
+    # space themselves ("Ġmuch"), so it moves from the text into the prediction.
+    # At the start of a line there is no space, and words come without one.
+    spaced = left.endswith((" ", "\t"))
+    if spaced:
+        left = left[:-1]
+
+    with quiet_stderr() as real_stderr:
+        import torch
+
+        tokenizer, model = load_model(real_stderr)
+        left_ids = tokenizer(left, add_special_tokens=False)["input_ids"]
+        right_ids = tokenizer(right, add_special_tokens=False)["input_ids"]
+
+        # Keep a window around the slot: half the budget each side, and whatever
+        # one side leaves unused goes to the other.
+        budget = MAX_TOKENS - 3  # <s>, <mask>, </s>
+        n_left = min(len(left_ids), max(budget // 2, budget - len(right_ids)))
+        n_right = min(len(right_ids), budget - n_left)
+        ids = (
+            [tokenizer.bos_token_id]
+            + left_ids[len(left_ids) - n_left :]
+            + [tokenizer.mask_token_id]
+            + right_ids[:n_right]
+            + [tokenizer.eos_token_id]
+        )
+
+        with torch.no_grad():
+            logits = model(input_ids=torch.tensor([ids])).logits[0, n_left + 1]
+        top = logits.softmax(-1).topk(500)
+
+    seen, out = set(), []
+    for p, i in zip(top.values.tolist(), top.indices.tolist()):
+        token = tokenizer.convert_ids_to_tokens(i)
+        if spaced != token.startswith("Ġ"):
+            continue  # a word fragment, or the wrong spacing for this slot
+        word = tokenizer.convert_tokens_to_string([token]).strip()
+        if not is_word(word) or word in seen:
+            continue
+        seen.add(word)
+        out.append((word, p))
+        if len(out) == count:
+            break
+    return out
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("-n", type=int, default=20, help="how many words (default 20)")
+    parser.add_argument("-m", "--marker", default="*", help="marks the slot (default *)")
+    args = parser.parse_args()
+
+    text = sys.stdin.read()
+    found = text.count(args.marker)
+    if found != 1:
+        sys.exit(
+            f"fill: expected exactly one '{args.marker}' marking the slot, found {found}. "
+            "Markdown uses * too; pick another marker with -m."
+        )
+
+    for word, p in suggest(text, args.marker, args.n):
+        print(f"{word}\t{p * 100:.1f}%")
+
+
+if __name__ == "__main__":
+    main()
