@@ -8,6 +8,10 @@
 
 vim.opt_local.spell = true
 vim.opt_local.spelllang = 'en_us'
+-- Check CamelCase words part by part: GenAI is Gen + AI, TypeScript is Type +
+-- Script, so neither needs a word list entry. A typo inside a part is still
+-- caught. Word lists and `zgl`/`zgg` are in lua/custom/spell.lua.
+vim.opt_local.spelloptions:append 'camel'
 vim.opt_local.linebreak = true -- wrap at word boundaries, not mid-word
 vim.opt_local.list = false -- listchars are noise in prose
 vim.opt_local.textwidth = 0 -- soft wrap only; vim-pencil handles the rest

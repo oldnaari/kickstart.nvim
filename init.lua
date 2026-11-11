@@ -182,6 +182,10 @@ vim.opt.cursorline = true
 -- Minimal number of screen lines to keep above and below the cursor.
 vim.opt.scrolloff = 10
 
+-- Spell word lists: `zgl` local and private, `zgg` global and committed here.
+-- Must run before any buffer turns spell on; see lua/custom/spell.lua.
+require('custom.spell').setup()
+
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 
@@ -695,6 +699,7 @@ require('lazy').setup({
         { '<leader>t', group = '[T]oggle' },
         { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
         { '<leader>p', group = '[P]rose' },
+        { 'zg', group = 'Add word to spell list', mode = { 'n', 'x' } },
       },
     },
   },
