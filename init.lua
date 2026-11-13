@@ -705,6 +705,7 @@ require('lazy').setup({
         { '<leader>t', group = '[T]oggle' },
         { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
         { '<leader>p', group = '[P]rose' },
+        { '<leader>pk', group = '[K]eyboard layout' },
         { 'zg', group = 'Add word to spell list', mode = { 'n', 'x' } },
       },
     },

@@ -10,6 +10,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Synonyms  | What else means this?           | `<leader>ps`, `:Synonyms`, `<C-x><C-t>` | WordNet (`wn`)     |
 | Fill      | What else fits here?            | `<leader>pf`, `:Fill`                 | `uv`                 |
 | Highlight | Where are the asides?           | dims `(parentheticals)`, colours `"quotes"` | `mini.hipatterns` |
+| Keyboard  | Type Armenian or Russian?       | `<leader>pk` + `e`/`a`/`r`, `<C-^>` in Insert | nothing |
 
 `:checkhealth prose` reports which of these tools are installed.
 
@@ -21,7 +22,9 @@ lua/prose/review.lua        claude -p review into quickfix
 lua/prose/alternatives.lua  synonyms and fill
 lua/prose/spell.lua         the two word lists
 lua/prose/highlight.lua     mini.hipatterns highlighters
+lua/prose/layout.lua        keyboard layout switching
 lua/prose/health.lua        :checkhealth prose
+keymap/                     Armenian keymap matching the macOS HM QWERTY layout
 bin/syn, bin/fill           command-line tools; setup() puts bin/ on $PATH
 vale/                       Vale config and the Prompt style
 ```
@@ -45,7 +48,12 @@ The defaults:
 ```lua
 {
   filetypes = { 'markdown' },
-  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf' }, -- each may be false
+  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', layout = '<leader>pk' }, -- each may be false
+  layouts = { -- <leader>pk + key; keymap = '' means English
+    { key = 'e', name = 'English', keymap = '' },
+    { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
+    { key = 'r', name = 'Russian', keymap = 'russian-jcukenmac' },
+  },
   thesaurus = true, -- 'thesaurusfunc' for <C-x><C-t>
   path = true,      -- put bin/ on $PATH
   spell = {},       -- { local_list = ..., global_list = ... }, or false to skip
@@ -63,5 +71,7 @@ Two parts stay in your own config:
   ```
 
   The groups `MarkdownProseParen` and `MarkdownProseString` link to `Comment` and `String` unless your theme defines them.
+
+The keyboard layouts use Vim's `'keymap'`, so the OS layout stays on English and Normal-mode commands keep working. The Armenian keymap's Option-layer letters (ը, շ, է, …) need a terminal that sends Option as Alt, such as iTerm2 with Option set to Esc+.
 
 The global spell list is personal data. It defaults to `spell/en.utf-8.add` in your config, not in this plugin.

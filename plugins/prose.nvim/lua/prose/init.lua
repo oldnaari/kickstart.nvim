@@ -6,6 +6,7 @@
 --   Synonyms    what else MEANS this? WordNet (prose.alternatives, bin/syn)
 --   Fill        what else FITS HERE? a masked model (prose.alternatives, bin/fill)
 --   Highlight   dim parentheticals, colour quotes (prose.highlight)
+--   Keyboard    type Armenian or Russian with the OS on English (prose.layout)
 --
 -- setup() only registers things: commands, a FileType autocmd, the spell lists,
 -- the vale_ls config. The modules behind them load on first use.
@@ -28,6 +29,14 @@ M.defaults = {
     review = '<leader>pr',
     synonym = '<leader>ps',
     fill = '<leader>pf',
+    layout = '<leader>pk', -- a prefix: each entry of `layouts` adds its own key
+  },
+  -- Insert-mode keyboard layouts (Vim's 'keymap'); see prose/layout.lua.
+  -- keymap = '' is none: the keys type what the OS layout says.
+  layouts = {
+    { key = 'e', name = 'English', keymap = '' },
+    { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
+    { key = 'r', name = 'Russian', keymap = 'russian-jcukenmac' },
   },
   -- `<C-x><C-t>` in insert mode completes with WordNet synonyms.
   thesaurus = true,
@@ -65,6 +74,14 @@ local function attach(buf)
     require('prose.alternatives').pick_fill()
   end, '[P]rose [F]ill (what fits here)')
 
+  if keys.layout then
+    for _, layout in ipairs(M.config.layouts) do
+      map(keys.layout .. layout.key, function()
+        require('prose.layout').set(layout)
+      end, layout.name)
+    end
+  end
+
   if M.config.thesaurus then
     vim.bo[buf].thesaurusfunc = "v:lua.require'prose.alternatives'.complete"
   end
@@ -78,7 +95,15 @@ local function default_highlights()
 end
 
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend('force', vim.deepcopy(M.defaults), opts or {})
+  opts = opts or {}
+  M.config = vim.tbl_deep_extend('force', vim.deepcopy(M.defaults), opts)
+  -- tbl_deep_extend merges lists index by index, so a shorter list would keep
+  -- the defaults' tail. Lists given in opts replace the default outright.
+  for _, list in ipairs { 'filetypes', 'layouts' } do
+    if opts[list] ~= nil then
+      M.config[list] = opts[list]
+    end
+  end
   local cfg = M.config
 
   if cfg.spell then
