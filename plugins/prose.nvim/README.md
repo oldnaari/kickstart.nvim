@@ -20,7 +20,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 lua/prose/init.lua          setup(), commands, keymaps, vale_ls config
 lua/prose/review.lua        claude -p review into quickfix
 lua/prose/alternatives.lua  synonyms and fill
-lua/prose/spell.lua         the two word lists
+lua/prose/spell.lua         the two word lists, plus compiling spell/*.add
 lua/prose/highlight.lua     mini.hipatterns highlighters
 lua/prose/layout.lua        keyboard layout switching
 lua/prose/health.lua        :checkhealth prose

@@ -44,7 +44,19 @@ function M.setup(opts)
   -- `zg` fails with E482 when the directory is missing, as on a fresh machine.
   vim.fn.mkdir(vim.fs.dirname(M.local_list), 'p')
 
-  for _, add in ipairs { M.local_list, M.global_list } do
+  -- Rebuild the two lists, and every other word list in the config's spell/
+  -- directory, such as hy.utf-8.add. Those others are not 'spellfile' entries:
+  -- Neovim loads LL.utf-8.add.spl from 'runtimepath' by itself whenever LL is
+  -- in 'spelllang', but only once it is compiled. The config dir, not the
+  -- global list's dir, because only a 'runtimepath' spell/ dir is loaded.
+  local lists = { M.local_list, M.global_list }
+  for _, add in ipairs(vim.fn.glob(vim.fn.stdpath 'config' .. '/spell/*.add', false, true)) do
+    if not vim.tbl_contains(lists, add) then
+      table.insert(lists, add)
+    end
+  end
+
+  for _, add in ipairs(lists) do
     local add_stat = vim.uv.fs_stat(add)
     if add_stat then
       local spl_stat = vim.uv.fs_stat(add .. '.spl')

@@ -1,0 +1,28 @@
+# Armenian endings written after a hyphen on abbreviations and Latin-script
+# words: ԱՄՆ-ի, ՀՀ-ում, Google-ը, Coca-Cola-ն, Tesla-յի, prompt-ները.
+#
+# Spell checking splits at the hyphen and checks the ending as a word of its
+# own. These are the endings the Armenian dictionary does not already accept
+# alone (ում, ով, ից, ին, ներ, ների, ներում pass). Side effect: they also pass
+# when they stand alone; for ի that is right anyway (ի դեպ, ի վերջո).
+#
+# Neovim loads hy.utf-8.add.spl from 'runtimepath' whenever hy is in
+# 'spelllang'; prose.nvim (prose/spell.lua) compiles it at startup.
+ը
+ն
+ս
+դ
+ի
+իդ
+յի
+յին
+յից
+յով
+յում
+ները
+ներն
+ներին
+ներից
+ներով
+երը
+երով

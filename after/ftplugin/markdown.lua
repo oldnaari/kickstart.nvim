@@ -9,8 +9,9 @@
 vim.opt_local.spell = true
 -- Armenian and Russian too; both spell files are committed under spell/.
 -- hy.utf-8.spl: Vim's spell server has no Armenian file, so spell/build-hy.sh
--- builds it from a Hunspell dictionary. ru.utf-8.spl: from Vim's spell server,
--- see spell/ru.LICENSE.
+-- builds it from a Hunspell dictionary, and spell/hy.utf-8.add adds the endings
+-- written after a hyphen (ԱՄՆ-ի, Google-ը). ru.utf-8.spl: from Vim's spell
+-- server, see spell/ru.LICENSE.
 vim.opt_local.spelllang = 'en_us,hy,ru'
 -- Check CamelCase words part by part: GenAI is Gen + AI, TypeScript is Type +
 -- Script, so neither needs a word list entry. A typo inside a part is still
