@@ -8,6 +8,7 @@
 --   Highlight   dim parentheticals, colour quotes (prose.highlight)
 --   Roles       colour subject, action, object: a parser, bin/roles (prose.roles)
 --   Keyboard    type Armenian or Russian with the OS on English (prose.layout)
+--   Emoji       search emoji by name, insert one (prose.emoji)
 --
 -- setup() only registers things: commands, a FileType autocmd, the spell lists,
 -- the vale_ls config. The modules behind them load on first use.
@@ -32,6 +33,7 @@ M.defaults = {
     fill = '<leader>pf',
     roles = '<leader>pg', -- toggles subject/action/object colouring
     layout = '<leader>k', -- opens the keyboard layout picker
+    emoji = '<leader>pe', -- opens the emoji picker
   },
   -- Insert-mode keyboard layouts (Vim's 'keymap'); see prose/layout.lua.
   -- `key` picks the layout straight from the picker, so avoid the picker's own
@@ -85,6 +87,10 @@ local function attach(buf)
   map(keys.layout, function()
     require('prose.layout').pick(M.config.layouts)
   end, '[K]eyboard layout')
+
+  map(keys.emoji, function()
+    require('prose.emoji').pick()
+  end, '[P]rose [E]moji')
 
   if M.config.thesaurus then
     vim.bo[buf].thesaurusfunc = "v:lua.require'prose.alternatives'.complete"
@@ -147,6 +153,9 @@ function M.setup(opts)
     end,
     desc = 'Toggle colouring of subjects, actions and objects; `status` or `stop` the shared parser (bin/roles)',
   })
+  vim.api.nvim_create_user_command('Emoji', function()
+    require('prose.emoji').pick()
+  end, { desc = 'Search emoji by name and insert one after the cursor' })
   vim.api.nvim_create_user_command('ProseReview', function()
     require('prose.review').run(0)
   end, { desc = 'Review the buffer with `claude -p`; findings go to quickfix' })

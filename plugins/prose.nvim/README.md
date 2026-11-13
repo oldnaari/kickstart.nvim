@@ -12,6 +12,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Highlight | Where are the asides?           | dims `(parentheticals)`, colours `"quotes"` | `mini.hipatterns` |
 | Roles     | Who does what to whom?          | `<leader>pg`, `:ProseRoles [status\|stop]` | `uv`            |
 | Keyboard  | Type Armenian or Russian?       | `<leader>k` picker, `<C-^>` in Insert | `telescope.nvim` (optional) |
+| Emoji     | Which emoji is that?            | `<leader>pe`, `:Emoji`                | `telescope.nvim`, `telescope-symbols.nvim` |
 
 `:checkhealth prose` reports which of these tools are installed.
 
@@ -25,6 +26,7 @@ lua/prose/spell.lua         the two word lists, plus compiling spell/*.add
 lua/prose/highlight.lua     mini.hipatterns highlighters
 lua/prose/roles.lua         subject/action/object colouring from bin/roles
 lua/prose/layout.lua        keyboard layout switching
+lua/prose/emoji.lua         emoji picker (Telescope's symbols picker)
 lua/prose/health.lua        :checkhealth prose
 keymap/                     Armenian keymap matching the macOS HM QWERTY layout
 bin/syn, bin/fill, bin/roles  command-line tools; setup() puts bin/ on $PATH
@@ -50,7 +52,7 @@ The defaults:
 ```lua
 {
   filetypes = { 'markdown' },
-  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', layout = '<leader>k' }, -- each may be false
+  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', layout = '<leader>k', emoji = '<leader>pe' }, -- each may be false
   layouts = { -- in the <leader>k picker, `key` picks at once; keymap = '' means English
     { key = 'e', name = 'English', keymap = '' },
     { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
@@ -89,5 +91,7 @@ What to expect:
 `bin/roles --show < file.md` prints the roles in brackets, which is handy for checking a sentence. The groups `ProseSubject`, `ProseAction`, `ProseObject` and `ProseNoun` link to `Identifier`, `Statement` and `Type`, and a dotted underline, unless your theme defines them.
 
 The keyboard layouts use Vim's `'keymap'`, so the OS layout stays on English and Normal-mode commands keep working. The `<leader>k` picker opens in Normal mode: pick with j/k or the arrows and Enter, or press a layout's key. Without Telescope it falls back to `vim.ui.select`. The Armenian keymap's Option-layer letters (ը, շ, է, …) need a terminal that sends Option as Alt, such as iTerm2 with Option set to Esc+.
+
+`<leader>pe` opens Telescope's symbols picker on the emoji list from [telescope-symbols.nvim](https://github.com/nvim-telescope/telescope-symbols.nvim); add it to Telescope's `dependencies`. Search by English name ("thumbs up", "red heart"); Enter inserts the emoji after the cursor.
 
 The global spell list is personal data. It defaults to `spell/en.utf-8.add` in your config, not in this plugin.

@@ -65,6 +65,16 @@ function M.check()
     vim.health.warn('`uv` not found: :ProseRoles and <leader>pg are unavailable', { 'Install it with: ' .. alt.install_hint 'uv' })
   end
 
+  vim.health.start 'Emoji (prose/emoji.lua)'
+
+  if not pcall(require, 'telescope') then
+    vim.health.warn 'telescope.nvim not found: :Emoji and <leader>pe are unavailable'
+  elseif require('prose.emoji').available() then
+    vim.health.ok 'Emoji list found: :Emoji and <leader>pe work'
+  else
+    vim.health.warn('No emoji list: :Emoji and <leader>pe are unavailable', { require('prose.emoji').install_hint })
+  end
+
   vim.health.start 'Prose review (prose/review.lua)'
 
   if vim.fn.executable 'claude' == 1 then
