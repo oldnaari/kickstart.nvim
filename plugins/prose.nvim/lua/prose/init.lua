@@ -131,9 +131,22 @@ function M.setup(opts)
   vim.api.nvim_create_user_command('Fill', function()
     require('prose.alternatives').pick_fill()
   end, { desc = 'Words that fit in place of the one under the cursor (masked language model)' })
-  vim.api.nvim_create_user_command('ProseRoles', function()
-    require('prose.roles').toggle(0)
-  end, { desc = 'Toggle colouring of subjects, actions and objects (Stanza parser, bin/roles)' })
+  vim.api.nvim_create_user_command('ProseRoles', function(o)
+    local roles = require 'prose.roles'
+    if o.args == '' then
+      roles.toggle(0)
+    elseif o.args == 'status' or o.args == 'stop' then
+      roles[o.args]()
+    else
+      vim.notify('ProseRoles: expected no argument, status or stop', vim.log.levels.ERROR)
+    end
+  end, {
+    nargs = '?',
+    complete = function()
+      return { 'status', 'stop' }
+    end,
+    desc = 'Toggle colouring of subjects, actions and objects; `status` or `stop` the shared parser (bin/roles)',
+  })
   vim.api.nvim_create_user_command('ProseReview', function()
     require('prose.review').run(0)
   end, { desc = 'Review the buffer with `claude -p`; findings go to quickfix' })

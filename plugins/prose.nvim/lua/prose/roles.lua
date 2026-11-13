@@ -16,10 +16,13 @@
 --   -> paragraphs not in the cache go to bin/roles, nearest the cursor first
 --   -> each result lands in the cache and triggers a repaint.
 --
--- One bin/roles process serves every buffer. It starts on the first toggle and
--- stops when the last buffer turns roles off, freeing its memory (about 2 GB
--- with all three languages loaded). Edits re-send only the paragraphs whose
--- text changed, after M.debounce_ms of quiet.
+-- One shared parser serves every buffer of every Neovim: `bin/roles --daemon`,
+-- on a socket in stdpath('state'). The first Neovim to need it starts it and
+-- later ones connect, so three tabs cost one set of models, not three. It keeps
+-- English loaded for good (about 0.9 GB) and drops Russian and Armenian after
+-- M.keep_alive unused, so a new tab or a Claude Code prompt colours English at
+-- once. It outlives every Neovim on purpose; `:ProseRoles stop` ends it. Edits
+-- re-send only the paragraphs whose text changed, after M.debounce_ms of quiet.
 --
 -- Roles are grammatical: in "The bug was fixed by Ann" the subject is "bug".
 -- Imperatives have no subject word, and neither do Armenian sentences whose
@@ -29,6 +32,10 @@ local M = {}
 
 M.debounce_ms = 300
 M.batch = 16 -- paragraphs per request; bin/roles parses a batch in bulk
+-- How long each language stays loaded after its last use: 'forever', '0', or a
+-- number with s, m or h. Read by the Neovim that starts the shared parser.
+-- Loading again costs about 5 s for Russian and 12 s for Armenian.
+M.keep_alive = { en = 'forever', ru = '30m', hy = '30m' }
 -- Below hipatterns (200), so a role inside (a parenthetical) stays dimmed.
 M.priority = 150
 
@@ -48,10 +55,8 @@ local group = vim.api.nvim_create_augroup('prose-roles', { clear = true })
 ---@field timer uv.uv_timer_t
 
 local bufs = {} ---@type table<integer, prose.roles.Buf>
-local proc ---@type vim.SystemObj?
 local requests = {} ---@type table<integer, {buf: integer, key: string}>
 local next_id = 0
-local stderr_tail = {} ---@type string[]
 local reported = {} ---@type table<string, true> errors already shown
 
 local function notify(msg, level)
@@ -209,9 +214,35 @@ local function blocked(p, srow, scol, erow, ecol)
   return false
 end
 
--- --- the parser process ------------------------------------------------------
+-- --- the shared parser -------------------------------------------------------
+--
+-- It must never keep Neovim from exiting: Claude Code waits for the editor to
+-- exit before it takes the prompt back. So it starts detached, in its own
+-- session (closing this terminal does not take it down either), with its
+-- output going to a log file rather than to pipes this Neovim holds. Neovim
+-- keeps only a socket to it, which closes when Neovim exits, however it exits.
 
 local refresh -- forward declaration
+
+local conn ---@type uv.uv_pipe_t? the connection, once made
+local connecting = false
+local failed = false -- gave up; cleared when roles are next turned on
+local outbox = {} ---@type string[] requests made while connecting
+local starting ---@type uv.uv_process_t? the parser this Neovim started, until it exits
+local spawns = 0 -- parsers started during this connection attempt
+local farewell ---@type string? the reason the parser gave for closing
+local drops = {} ---@type integer[] when the parser went away without one
+
+---@return string socket, string log, string dir
+local function files()
+  local dir = vim.fn.stdpath 'state' --[[@as string]]
+  return dir .. '/prose-roles.sock', dir .. '/prose-roles.log', dir
+end
+
+local function log_tail()
+  local ok, lines = pcall(vim.fn.readfile, select(2, files()), '', -12)
+  return ok and table.concat(lines, '\n') or ''
+end
 
 local function on_result(msg)
   local req = msg.id and requests[msg.id]
@@ -233,99 +264,217 @@ local function on_result(msg)
   refresh(req.buf, 30) -- results arrive in bursts; repaint once per burst
 end
 
-local function stop()
-  local p = proc
-  proc = nil
-  requests = {}
+---Drop the connection. Requests in flight are lost; the next paint re-sends them.
+local function close()
+  connecting = false
+  local c = conn
+  conn = nil
+  if c and not c:is_closing() then
+    c:close()
+  end
+  requests, outbox = {}, {}
   for _, st in pairs(bufs) do
     st.pending = {}
   end
-  if p then
-    pcall(p.kill, p, 15)
+end
+
+local function fail(msg)
+  close()
+  failed = true
+  notify(('%s\nLog %s:\n%s'):format(msg, select(2, files()), log_tail()), vim.log.levels.ERROR)
+end
+
+-- Claude Code waits for the editor to exit before it submits; let go of the
+-- socket on the way out. Both events, for the reason in prose/review.lua.
+vim.api.nvim_create_autocmd({ 'ExitPre', 'VimLeavePre' }, { group = group, callback = close })
+
+local function on_eof()
+  local bye = farewell
+  close()
+  if next(bufs) == nil then
+    return
+  end
+  -- A goodbye means it stopped on purpose ("stop", or a new bin/roles taking
+  -- over). Without one it crashed: start it again, but not in a loop.
+  if not bye then
+    local now = vim.uv.now()
+    drops = vim.tbl_filter(function(t)
+      return now - t < 60000
+    end, drops)
+    table.insert(drops, now)
+    if #drops >= 3 then
+      fail 'The shared parser keeps stopping. Roles stay off until you turn them on again.'
+      return
+    end
+    notify('The shared parser stopped unexpectedly. It starts again with the next paragraph to parse.', vim.log.levels.WARN)
+  end
+  for buf in pairs(bufs) do
+    refresh(buf, 100)
   end
 end
 
-local function start()
-  if proc then
-    return proc
-  end
-  local exe = require('prose').root .. '/bin/roles'
-  if vim.fn.executable 'uv' == 0 then
-    notify('needs `uv`, which is not installed. Install it with: ' .. require('prose.alternatives').install_hint 'uv', vim.log.levels.ERROR)
-    return nil
-  end
+---@param pipe uv.uv_pipe_t
+local function listen(pipe)
   local partial = ''
-  stderr_tail = {}
-  local job
-  local ok, res = pcall(vim.system, { exe }, {
-    stdin = true,
-    text = true,
-    stdout = function(_, data)
-      if not data then
-        return
-      end
-      partial = partial .. data
-      for line in partial:gmatch '([^\n]*)\n' do
-        vim.schedule(function()
-          if proc == job then
-            local okj, msg = pcall(vim.json.decode, line)
-            if okj and type(msg) == 'table' then
-              on_result(msg)
-            end
-          end
-        end)
-      end
-      partial = partial:match '[^\n]*$'
-    end,
-    stderr = function(_, data)
-      for line in (data or ''):gmatch '[^\n]+' do
-        table.insert(stderr_tail, line)
-        if #stderr_tail > 20 then
-          table.remove(stderr_tail, 1)
+  pipe:read_start(function(err, data)
+    if err or not data then
+      vim.schedule(function()
+        if conn == pipe then
+          on_eof()
         end
-        if line:match '^roles: downloading' then
-          vim.schedule(function()
-            notify((line:gsub('^roles: ', '')))
-          end)
-        end
-      end
-    end,
-  }, function(res)
+      end)
+      return
+    end
+    partial = partial .. data
+    local lines = {}
+    for line in partial:gmatch '([^\n]*)\n' do
+      lines[#lines + 1] = line
+    end
+    partial = partial:match '[^\n]*$'
     vim.schedule(function()
-      if proc ~= job then
-        return -- stopped on purpose, or replaced
+      for _, line in ipairs(lines) do
+        local ok, msg = pcall(vim.json.decode, line)
+        if conn == pipe and ok and type(msg) == 'table' then
+          if msg.notice then
+            notify(msg.notice)
+          elseif msg.bye then
+            farewell = msg.bye
+          else
+            on_result(msg)
+          end
+        end
       end
-      proc = nil
-      requests = {}
-      for _, st in pairs(bufs) do
-        st.pending = {}
-      end
-      notify(
-        ('bin/roles exited (%s): %s'):format(res.signal ~= 0 and 'signal ' .. res.signal or 'code ' .. res.code, table.concat(stderr_tail, '\n')),
-        vim.log.levels.ERROR
-      )
     end)
   end)
-  if not ok then
-    notify('could not start bin/roles: ' .. tostring(res), vim.log.levels.ERROR)
-    return nil
-  end
-  job = res
-  proc = job
-  return job
 end
 
--- Claude Code waits for the editor to exit before it submits, so the parser
--- must never hold Neovim open. Both events, for the reason in prose/review.lua.
-vim.api.nvim_create_autocmd({ 'ExitPre', 'VimLeavePre' }, { group = group, callback = stop })
+local function spawn()
+  local sock, log, dir = files()
+  if vim.fn.executable 'uv' == 0 then
+    fail('needs `uv`, which is not installed. Install it with: ' .. require('prose.alternatives').install_hint 'uv')
+    return
+  end
+  spawns = spawns + 1
+  vim.fn.mkdir(dir, 'p')
+  local keep = {}
+  for lang, v in pairs(M.keep_alive) do
+    keep[#keep + 1] = lang .. '=' .. v
+  end
+  table.sort(keep)
+  local null = assert(vim.uv.fs_open('/dev/null', 'r', 0))
+  local out, open_err = vim.uv.fs_open(log, 'a', tonumber('600', 8))
+  if not out then
+    vim.uv.fs_close(null)
+    fail('cannot write the log: ' .. tostring(open_err))
+    return
+  end
+  local handle, err ---@type uv.uv_process_t?, string?
+  handle, err = vim.uv.spawn(require('prose').root .. '/bin/roles', {
+    args = { '--daemon', sock, '--keep-alive', table.concat(keep, ',') },
+    stdio = { null, out, out }, -- no pipe back to this Neovim
+    cwd = dir,
+    detached = true, -- its own session: not this terminal's, not Claude Code's
+  }, function(code, signal)
+    vim.schedule(function()
+      if starting == handle then
+        starting = nil
+      end
+      if handle and not handle:is_closing() then
+        handle:close()
+      end
+      -- Exit 0 without a socket: another Neovim's parser won the race.
+      if (code ~= 0 or signal ~= 0) and connecting then
+        fail(('The shared parser could not start (%s).'):format(signal ~= 0 and 'signal ' .. signal or 'exit ' .. code))
+      end
+    end)
+  end)
+  vim.uv.fs_close(null)
+  vim.uv.fs_close(out)
+  if not handle then
+    fail('could not start bin/roles: ' .. tostring(err))
+    return
+  end
+  handle:unref() -- never keeps Neovim's event loop alive
+  starting = handle
+  notify 'Starting the shared parser. English is ready in about 10 s; Russian and Armenian load the first time they appear (5-15 s).'
+end
+
+-- Until it listens: it binds the socket within a second or so of starting,
+-- but uv's first run installs PyTorch first, which takes minutes.
+local function attempt()
+  if not connecting then
+    return
+  end
+  local pipe = assert(vim.uv.new_pipe(false))
+  pipe:connect(files(), function(err)
+    vim.schedule(function()
+      if err or not connecting then
+        pipe:close()
+        if not connecting then
+          return
+        end
+        if not starting then
+          if spawns >= 3 then
+            fail 'The shared parser did not start.'
+            return
+          end
+          spawn()
+        end
+        vim.defer_fn(attempt, 200)
+        return
+      end
+      connecting, conn, farewell = false, pipe, nil
+      listen(pipe)
+      for _, line in ipairs(outbox) do
+        pipe:write(line)
+      end
+      outbox = {}
+    end)
+  end)
+end
+
+local function send(line)
+  if conn then
+    conn:write(line) -- a broken connection reports itself as end of file
+    return
+  end
+  outbox[#outbox + 1] = line
+  if not connecting then
+    connecting, spawns = true, 0
+    attempt()
+  end
+end
+
+---Send one command to the shared parser and wait for its answer. Never starts it.
+---@return table? reply nil if it is not running
+local function ask(cmd, timeout)
+  local pipe = assert(vim.uv.new_pipe(false))
+  local line = vim.json.encode { cmd = cmd } .. '\n'
+  local data, done = '', false
+  pipe:connect(files(), function(err)
+    if err then
+      done = true
+      return
+    end
+    pipe:read_start(function(e, chunk)
+      data = data .. (chunk or '')
+      done = done or e ~= nil or chunk == nil or data:find '\n' ~= nil
+    end)
+    pipe:write(line)
+  end)
+  vim.wait(timeout or 2000, function()
+    return done
+  end, 10)
+  if not pipe:is_closing() then
+    pipe:close()
+  end
+  local ok, reply = pcall(vim.json.decode, data:match '^[^\n]*')
+  return ok and type(reply) == 'table' and reply or nil
+end
 
 ---Send the paragraphs the cache lacks, nearest the cursor first.
 local function request(buf, missing)
-  if #missing == 0 then
-    return
-  end
-  local job = start()
-  if not job then
+  if #missing == 0 or failed then
     return
   end
   local st = bufs[buf]
@@ -343,7 +492,7 @@ local function request(buf, missing)
     end
     local ok, line = pcall(vim.json.encode, items)
     if ok then
-      pcall(job.write, job, line .. '\n') -- a dead process reports itself on exit
+      send(line .. '\n')
     end
   end
 end
@@ -442,7 +591,7 @@ function M.disable(buf)
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   end
   if next(bufs) == nil then
-    stop() -- nothing left to colour: give the memory back
+    close() -- the shared parser stays, for the next buffer or Neovim
   end
 end
 
@@ -466,9 +615,8 @@ function M.enable(buf)
       M.disable(buf)
     end,
   })
-  if not proc then
-    notify 'On. The parser takes 5-20 s to load each language; the first run also downloads about 2 GB of models.'
-  end
+  failed, drops = false, {} -- turning roles on is the way to try again
+  notify 'On'
   paint(buf)
 end
 
@@ -479,6 +627,56 @@ function M.toggle(buf)
     notify 'Off'
   else
     M.enable(buf)
+  end
+end
+
+local LANGS = { en = 'English', ru = 'Russian', hy = 'Armenian' }
+
+local function ago(seconds)
+  return seconds < 90 and ('%d s'):format(seconds) or ('%d min'):format(seconds / 60)
+end
+
+---One line about the shared parser, or nil if it is not running.
+---@return string?
+function M.describe()
+  local s = (ask 'status' or {}).status
+  if type(s) ~= 'table' then
+    return nil
+  end
+  local langs = {}
+  for lang, idle in pairs(s.loaded or {}) do
+    local keep = (s.keep_alive or {})[lang]
+    langs[#langs + 1] = keep == 'forever' and ('%s (kept)'):format(LANGS[lang] or lang)
+      or ('%s (unused %s, unloads after %s)'):format(LANGS[lang] or lang, ago(idle), keep)
+  end
+  table.sort(langs)
+  local kb = tonumber(vim.trim(vim.fn.system { 'ps', '-o', 'rss=', '-p', tostring(s.pid) }))
+  return ('pid %d, %s. Loaded: %s. Neovims connected: %d. Log: %s'):format(
+    s.pid,
+    -- Resident only: macOS compresses idle pages, so this can sit well below
+    -- what the models take once they are in use.
+    kb and ('%d MB in RAM'):format(kb / 1024) or 'memory unknown',
+    #langs > 0 and table.concat(langs, ', ') or 'nothing yet',
+    s.clients or 0,
+    select(2, files())
+  )
+end
+
+function M.status()
+  local d = M.describe()
+  notify(d and 'Shared parser: ' .. d or 'The shared parser is not running. It starts when roles are turned on.')
+end
+
+---Stop the shared parser and free its memory. Roles go off in this Neovim;
+---another Neovim with roles on starts the parser again on its next edit.
+function M.stop()
+  for _, buf in ipairs(vim.tbl_keys(bufs)) do
+    M.disable(buf)
+  end
+  if (ask 'stop' or {}).bye then
+    notify 'Stopped the shared parser.'
+  else
+    notify 'The shared parser is not running.'
   end
 end
 

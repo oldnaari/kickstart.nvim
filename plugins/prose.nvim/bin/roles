@@ -20,7 +20,8 @@ A dependency parser (Stanza) reads each paragraph and labels its words. English,
 Russian and Armenian are told apart by their letters, per paragraph.
 
     roles --show < draft.md      # read text, print it with [brackets]S
-    roles                        # JSON lines on stdin and stdout, for Neovim
+    roles --daemon SOCKET        # the shared parser that every Neovim uses
+    roles                        # the same JSON lines on stdin and stdout
 
 The JSON protocol: each input line is a paragraph, {"id": ..., "text": "..."},
 or a list of them. A list is parsed in bulk, about five times faster. Each
@@ -28,6 +29,14 @@ paragraph gets its own output line, {"id": ..., "lang": "en", "spans": [[start,
 end, role], ...]} or {"id": ..., "error": "..."}, where start and end are UTF-8
 byte offsets into text and role is one of subject, action, object, noun. A
 paragraph with no letters gets lang null and no spans.
+
+The shared parser speaks it over a Unix socket, to any number of Neovims at
+once, taking their requests in turn. It also answers {"cmd": "status"} and
+{"cmd": "stop"}, and may send {"notice": "..."} (a model is downloading) and
+{"bye": "..."} (it is about to close the connection). Each language stays
+loaded for its --keep-alive after its last use; English, by default, for good.
+It runs until stopped, and hands over to a fresh process when this file
+changes. Its output belongs in a log file: Neovim passes one.
 
 Roles are grammatical, not semantic: in "The bug was fixed by Ann" the subject
 is "bug". A sentence can lack one: imperatives have no subject word, Armenian
@@ -41,13 +50,22 @@ all three loaded the process takes about 2 GB of memory.
 """
 
 import argparse
+import asyncio
 import contextlib
+import ctypes
+import fcntl
+import gc
+import hashlib
 import json
 import os
 import re
+import signal
+import stat
 import sys
 import time
 import unicodedata
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 # Stanza adds mwt (multi-word tokens, "don't" = do + n't) where a language has it.
 PROCESSORS = "tokenize,pos,lemma,depparse"
@@ -148,26 +166,50 @@ def normalise(text, lang):
 
 
 class Parsers:
-    """One Stanza pipeline per language, loaded on first use."""
+    """One Stanza pipeline per language, loaded on first use. The shared parser
+    also unloads them again, see expire()."""
 
-    def __init__(self, log):
+    def __init__(self, log, notice=None):
         self.log = log
+        # A message for the person waiting: a download takes minutes.
+        self.notice = notice or (lambda msg: log(f"roles: {msg}"))
         self.pipelines = {}
+        self.used = {}  # lang -> time.monotonic() when its last use ended
 
     def get(self, lang):
         if lang not in self.pipelines:
             self.pipelines[lang] = self.load(lang)
+        # After the load, not before: Armenian takes longer to load than a
+        # short keep-alive, and must not count as unused the moment it is ready.
+        self.used[lang] = time.monotonic()
         return self.pipelines[lang]
+
+    def due(self, keep_alive):
+        """Seconds until the next language is due to unload, or None."""
+        now = time.monotonic()
+        left = [self.used[lang] + keep_alive[lang] - now for lang in self.pipelines if keep_alive.get(lang) is not None]
+        return max(0.0, min(left)) if left else None
+
+    def expire(self, keep_alive):
+        """Unload the languages unused for longer than their keep-alive (seconds;
+        None keeps them) and give the memory back. Returns the ones unloaded."""
+        now = time.monotonic()
+        gone = [l for l in self.pipelines if keep_alive.get(l) is not None and now - self.used[l] >= keep_alive[l]]
+        for lang in gone:
+            del self.pipelines[lang]
+        if gone:
+            give_back_memory()
+        return gone
 
     def load(self, lang):
         t = time.monotonic()
-        with quiet_stderr() as real_stderr:
+        pkg = package(lang)
+        with quiet_stderr():
             import stanza
             from stanza.resources.common import DEFAULT_MODEL_DIR
-
-            pkg = package(lang)
-            if not os.path.isdir(os.path.join(DEFAULT_MODEL_DIR, lang)):
-                os.write(real_stderr, f"roles: downloading the Stanza model for {lang} (one time)...\n".encode())
+        if not os.path.isdir(os.path.join(DEFAULT_MODEL_DIR, lang)):
+            self.notice(f"downloading the Stanza model for {lang} (one time)...")
+        with quiet_stderr():
             pipeline = stanza.Pipeline(
                 lang=lang,
                 package=pkg,
@@ -184,7 +226,26 @@ class Parsers:
         pipeline = self.get(lang)
         import stanza
 
-        return pipeline.bulk_process([stanza.Document([], text=normalise(t, lang)) for t in texts])
+        try:
+            return pipeline.bulk_process([stanza.Document([], text=normalise(t, lang)) for t in texts])
+        finally:
+            self.used[lang] = time.monotonic()
+
+
+def give_back_memory():
+    """Hand freed memory back to the system. Dropping a model frees it inside
+    the process, but the allocator keeps much of it for reuse unless asked.
+    Measured on macOS: unloading Armenian and Russian took the process from
+    1.7 GB to 1.2 GB, and this call on to 0.8 GB, the same as English alone."""
+    gc.collect()
+    try:
+        libc = ctypes.CDLL(None)
+        if sys.platform == "darwin":
+            libc.malloc_zone_pressure_relief(None, 0)
+        else:
+            libc.malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # another libc: the memory is still reused by the next load
 
 
 @contextlib.contextmanager
@@ -393,6 +454,14 @@ def attach_endings(text, spans):
 # --- front ends -------------------------------------------------------------
 
 
+def requested(req):
+    """The paragraphs a decoded request asks for, or ValueError."""
+    paras = [req] if isinstance(req, dict) else req
+    if not isinstance(paras, list) or not all(isinstance(p, dict) and isinstance(p.get("text"), str) for p in paras):
+        raise ValueError('expected {"id", "text"} or a list of them')
+    return paras
+
+
 def serve(parsers):
     """JSON lines until stdin closes; see the protocol at the top."""
     def reply(obj):
@@ -403,15 +472,255 @@ def serve(parsers):
         if not line.strip():
             continue
         try:
-            req = json.loads(line)
-            paras = [req] if isinstance(req, dict) else req
-            if not isinstance(paras, list) or not all(isinstance(p, dict) and isinstance(p.get("text"), str) for p in paras):
-                raise ValueError('expected {"id", "text"} or a list of them')
+            paras = requested(json.loads(line))
         except ValueError as e:
             reply({"id": None, "error": f"bad request: {e}"})
             continue
         for _, out in analyse(parsers, paras):
             reply(out)
+
+
+# --- the shared parser ------------------------------------------------------
+
+# How long each language stays loaded after its last use: "forever", "0" (unload
+# straight after), or a number with s, m or h. English, the usual case, loads at
+# start and stays. Reloading costs about 5 s for Russian and 12 s for Armenian.
+KEEP_ALIVE = "en=forever,ru=30m,hy=30m"
+
+LOG_LIMIT = 1 << 20  # the log is cut back to nothing past this, at start
+SOURCE = os.path.abspath(__file__)
+
+
+def parse_keep_alive(spec):
+    """{"en": None, "ru": 1800.0}: seconds, None for forever."""
+    out = {}
+    for item in filter(None, (s.strip() for s in spec.split(","))):
+        lang, _, value = item.partition("=")
+        value = value.strip()
+        if value in ("forever", "-1"):
+            out[lang.strip()] = None
+            continue
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)([smh]?)", value)
+        if not m:
+            raise argparse.ArgumentTypeError(f"bad keep-alive {item!r}: use forever, 0, 90s, 30m or 2h")
+        out[lang.strip()] = float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
+    return out
+
+
+def duration(seconds):
+    if seconds is None:
+        return "forever"
+    for unit, size in (("h", 3600), ("m", 60)):
+        if seconds >= size and seconds % size == 0:
+            return f"{seconds / size:g}{unit}"
+    return f"{seconds:g}s"
+
+
+def source_hash():
+    try:
+        with open(SOURCE, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+class Client:
+    """One connected Neovim and the requests it has queued."""
+
+    def __init__(self, writer):
+        self.writer = writer
+        self.jobs = deque()
+
+    def send(self, obj):
+        if not self.writer.is_closing():
+            self.writer.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
+
+
+class Daemon:
+    """The shared parser. Requests are taken from each client in turn, so one
+    Neovim opening a long file does not hold up another's edit. Stanza runs on
+    a single worker thread; the event loop only moves messages."""
+
+    def __init__(self, path, keep_alive, log):
+        self.path = path
+        self.keep_alive = keep_alive
+        self.log = log
+        self.parsers = Parsers(log, self.notice)
+        self.worker = ThreadPoolExecutor(max_workers=1)
+        self.clients = deque()  # in turn order
+        self.source = source_hash()
+        self.started = time.time()
+        self.closing = False
+        self.server = None
+
+    async def run(self):
+        self.loop = asyncio.get_running_loop()
+        self.wake = asyncio.Event()
+        self.done = asyncio.Event()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            self.loop.add_signal_handler(sig, self.shutdown, "signal")
+        # A batch of long paragraphs is one line, well past the 64 KB default.
+        self.server = await asyncio.start_unix_server(self.handle, self.path, limit=1 << 24)
+        self.log(f"roles: shared parser {os.getpid()} listening, keep-alive {self.describe_keep_alive()}")
+        self.loop.create_task(self.schedule())
+        await self.done.wait()
+        await asyncio.sleep(0.2)  # let the goodbyes reach the clients
+
+    def describe_keep_alive(self):
+        return ", ".join(f"{lang} {duration(s)}" for lang, s in self.keep_alive.items())
+
+    def work(self, fn, *args):
+        return self.loop.run_in_executor(self.worker, fn, *args)
+
+    async def schedule(self):
+        await self.work(self.preload)
+        while not self.closing:
+            job = self.next_job()
+            if job:
+                await self.work(self.parse, *job)
+            else:
+                self.wake.clear()
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self.wake.wait(), self.parsers.due(self.keep_alive))
+            for lang in await self.work(self.parsers.expire, self.keep_alive):
+                self.log(f"roles: unloaded {lang}, unused for {duration(self.keep_alive[lang])}")
+
+    def preload(self):
+        for lang, keep in self.keep_alive.items():
+            if keep is None:
+                try:
+                    self.parsers.get(lang)
+                except Exception as e:  # it loads again on first use, or reports then
+                    self.log(f"roles: could not load {lang}: {type(e).__name__}: {e}")
+
+    def next_job(self):
+        for _ in range(len(self.clients)):
+            client = self.clients[0]
+            self.clients.rotate(-1)
+            if client.jobs:
+                return client, client.jobs.popleft()
+        return None
+
+    def parse(self, client, paras):
+        """On the worker thread. Results go back one paragraph at a time."""
+        try:
+            for _, out in analyse(self.parsers, paras):
+                self.loop.call_soon_threadsafe(client.send, out)
+        except Exception as e:  # analyse reports errors per paragraph; this is a bug
+            self.log(f"roles: {type(e).__name__}: {e}")
+            for p in paras:
+                self.loop.call_soon_threadsafe(client.send, {"id": p.get("id"), "error": f"{type(e).__name__}: {e}"})
+
+    def notice(self, msg):
+        """From the worker thread: log it and tell everyone connected."""
+        self.log(f"roles: {msg}")
+        self.loop.call_soon_threadsafe(lambda: [c.send({"notice": msg}) for c in self.clients])
+
+    async def handle(self, reader, writer):
+        client = Client(writer)
+        if source_hash() != self.source:
+            # bin/roles was edited or updated: make way for a fresh process,
+            # which the client starts when it finds no one listening.
+            client.send({"bye": "restart"})
+            self.shutdown("bin/roles changed")
+            writer.close()
+            return
+        self.clients.append(client)
+        try:
+            while not self.closing:
+                line = await reader.readline()
+                if not line:
+                    break
+                self.receive(client, line)
+        except (ConnectionError, ValueError) as e:  # ValueError: a line over the limit
+            self.log(f"roles: dropped a client: {e}")
+        finally:
+            client.jobs.clear()
+            with contextlib.suppress(ValueError):
+                self.clients.remove(client)
+            writer.close()
+
+    def receive(self, client, line):
+        if not line.strip():
+            return
+        try:
+            req = json.loads(line)
+            if isinstance(req, dict) and "cmd" in req:
+                return self.command(client, req["cmd"])
+            client.jobs.append(requested(req))
+            self.wake.set()
+        except ValueError as e:
+            client.send({"id": None, "error": f"bad request: {e}"})
+
+    def command(self, client, cmd):
+        if cmd == "status":
+            now, used = time.monotonic(), dict(self.parsers.used)
+            client.send({"status": {
+                "pid": os.getpid(),
+                "started": self.started,
+                "clients": sum(1 for c in self.clients if c is not client),  # besides the asker
+                "queued": sum(len(c.jobs) for c in self.clients),
+                "loaded": {lang: round(now - used.get(lang, now)) for lang in list(self.parsers.pipelines)},
+                "keep_alive": {lang: duration(s) for lang, s in self.keep_alive.items()},
+            }})
+        elif cmd == "stop":
+            self.shutdown("stopped")
+        else:
+            raise ValueError(f"unknown command {cmd!r}")
+
+    def shutdown(self, reason):
+        if self.closing:
+            return
+        self.closing = True
+        self.log(f"roles: shutting down: {reason}")
+        if self.server:
+            self.server.close()
+        # Gone before the clients hear about it, so a client that reconnects at
+        # once finds no one and starts a fresh process.
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self.path)
+        for c in list(self.clients):
+            c.send({"bye": reason})
+            c.writer.close()
+        self.done.set()
+
+
+def take_lock(path, wait=5.0):
+    """An exclusive lock held for the process's life, or None if another shared
+    parser has it. Waits a little: a parser making way for a new version lets
+    go only as it exits."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            if time.monotonic() > deadline:
+                os.close(fd)
+                return None
+            time.sleep(0.1)
+
+
+def daemon(path, keep_alive):
+    os.umask(0o077)  # the socket, lock and log are for this user alone
+    lock = take_lock(path + ".lock")
+    if lock is None:
+        return  # another one is running; quietly leave it to that one
+    if stat.S_ISREG(os.fstat(2).st_mode) and os.fstat(2).st_size > LOG_LIMIT:
+        os.ftruncate(2, 0)
+
+    def log(msg):
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", file=sys.stderr, flush=True)
+
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)  # left behind by a parser that crashed: the lock is ours
+    asyncio.run(Daemon(path, keep_alive, log).run())
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Not sys.exit: that would wait for the worker thread to finish a parse,
+    # or a model load, that nobody is waiting for any more.
+    os._exit(0)
 
 
 TAGS = {"subject": "S", "action": "A", "object": "O", "noun": "N"}
@@ -442,7 +751,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--show", action="store_true", help="read text, print it with roles in brackets")
     parser.add_argument("--no-nouns", action="store_true", help="with --show, leave other nouns unmarked")
+    parser.add_argument("--daemon", metavar="SOCKET", help="run the shared parser on this Unix socket")
+    parser.add_argument(
+        "--keep-alive",
+        metavar="SPEC",
+        type=parse_keep_alive,
+        default={},
+        help=f"with --daemon, how long each language stays loaded after use (default {KEEP_ALIVE})",
+    )
     args = parser.parse_args()
+
+    if args.daemon:
+        daemon(args.daemon, {**parse_keep_alive(KEEP_ALIVE), **args.keep_alive})
+        return
 
     def log(msg):
         print(msg, file=sys.stderr, flush=True)

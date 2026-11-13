@@ -55,6 +55,12 @@ function M.check()
         )
       )
     end
+    local shared = require('prose.roles').describe()
+    if shared then
+      vim.health.ok('Shared parser running: ' .. shared)
+    else
+      vim.health.info 'Shared parser not running. The first <leader>pg starts it, and it stays (`:ProseRoles stop` ends it).'
+    end
   else
     vim.health.warn('`uv` not found: :ProseRoles and <leader>pg are unavailable', { 'Install it with: ' .. alt.install_hint 'uv' })
   end
