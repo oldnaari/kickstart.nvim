@@ -13,7 +13,13 @@
 -- Unlike render-markdown, extmarks are not tied to `render_modes`, so these
 -- highlights apply in every mode -- normal, visual and insert alike.
 --
--- Colours live in lua/custom/markdown_theme.lua with everything else.
+-- The groups are MarkdownProseParen and MarkdownProseString. prose/init.lua
+-- links them to Comment and String by default; a theme can define them itself.
+--
+-- mini.hipatterns has one global config, so this plugin does not call its
+-- setup. Pass the highlighters in yourself:
+--
+--   require('mini.hipatterns').setup { highlighters = require('prose.highlight').highlighters() }
 
 local M = {}
 

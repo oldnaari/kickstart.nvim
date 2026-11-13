@@ -11,7 +11,7 @@
 #
 # The header line is the sense itself: words that mean the same, then the
 # definition. Indented lines are related words: similar adjectives, or broader
-# terms for nouns and verbs. lua/custom/word_alternatives.lua parses exactly
+# terms for nouns and verbs. lua/prose/alternatives.lua parses exactly
 # this format, so keep the two in step.
 #
 # Inflected words are looked up by base form (ran -> run), so the suggestions

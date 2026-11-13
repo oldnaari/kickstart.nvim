@@ -11,12 +11,12 @@
 -- mode (WordNet, via 'thesaurusfunc'), and the :Synonyms / :Fill commands.
 --
 -- A missing tool is never fatal: the action says what to install and stops,
--- and `:checkhealth custom` lists both (lua/custom/health.lua). Nothing here
+-- and `:checkhealth prose` lists both (prose/health.lua). Nothing here
 -- installs system packages itself.
 
 local M = {}
 
-M.bin = vim.fn.stdpath 'config' .. '/bin'
+M.bin = require('prose').root .. '/bin'
 
 local function notify(msg, level)
   vim.notify(msg, level or vim.log.levels.INFO, { title = 'Word alternatives' })

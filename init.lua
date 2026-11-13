@@ -182,22 +182,6 @@ vim.opt.cursorline = true
 -- Minimal number of screen lines to keep above and below the cursor.
 vim.opt.scrolloff = 10
 
--- Spell word lists: `zgl` local and private, `zgg` global and committed here.
--- Must run before any buffer turns spell on; see lua/custom/spell.lua.
-require('custom.spell').setup()
-
--- Word alternatives: :Synonyms (WordNet, same meaning) and :Fill (masked
--- language model, what fits in context). See lua/custom/word_alternatives.lua.
--- bin/ goes on PATH so `:r !syn happy` and `:w !fill` work on every machine
--- without any shell setup.
-vim.env.PATH = vim.fn.stdpath 'config' .. '/bin:' .. vim.env.PATH
-vim.api.nvim_create_user_command('Synonyms', function(opts)
-  require('custom.word_alternatives').pick_synonym(opts.args ~= '' and opts.args or nil)
-end, { nargs = '?', desc = 'Replace the word under the cursor with a synonym, or yank a synonym of {word} (WordNet)' })
-vim.api.nvim_create_user_command('Fill', function()
-  require('custom.word_alternatives').pick_fill()
-end, { desc = 'Words that fit in place of the one under the cursor (masked language model)' })
-
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 
@@ -566,6 +550,16 @@ require('lazy').setup({
         },
       },
     },
+  },
+  { -- Prose tools: Vale, spell lists, Claude review, synonyms, fill, highlighting.
+    -- A local plugin kept in this repo, so it travels with `git clone`; see
+    -- plugins/prose.nvim/README.md. Not lazy: the spell lists must be set up
+    -- before the first buffer turns spell on.
+    dir = vim.fn.stdpath 'config' .. '/plugins/prose.nvim',
+    name = 'prose.nvim',
+    main = 'prose',
+    lazy = false,
+    opts = {},
   },
   -- lua/plugins/pencil.lua
   {
@@ -1086,9 +1080,9 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'ruff', -- Python formatter with range support
-        'vale-ls', -- Prose linter LSP for markdown; config and rules in vale/
+        'vale-ls', -- Prose linter LSP; prose.nvim configures it (plugins/prose.nvim/vale/)
         'vale', -- The binary vale-ls runs. Mason's bin is on Neovim's PATH, so
-        -- this is the only copy (vale-ls's own download is off, below).
+        -- this is the only copy (vale-ls's own download is off, in prose.nvim).
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -1101,19 +1095,8 @@ require('lazy').setup({
         vim.lsp.config(server_name, server)
       end
 
-      -- Vale on every markdown buffer, Claude prompt temp files included. Those
-      -- live outside any project, where no `.vale.ini` exists, so the config path
-      -- is passed explicitly: one global config, kept in this repo so it travels
-      -- to remote hosts. Only `configPath` is needed -- a fixed root_dir or
-      -- VALE_CONFIG_PATH were tried and changed nothing (verified headless).
-      vim.lsp.config('vale_ls', {
-        filetypes = { 'markdown' },
-        init_options = {
-          configPath = vim.fn.stdpath 'config' .. '/vale/.vale.ini',
-          installVale = false, -- use Mason's vale, never a second downloaded copy
-          syncOnStartup = false, -- no Packages to sync; skip the startup cost
-        },
-      })
+      -- vale_ls gets its config from prose.nvim (plugins/prose.nvim); this only
+      -- enables it, like every other installed server.
       require('mason-lspconfig').setup {}
     end,
   },
@@ -1407,9 +1390,9 @@ require('lazy').setup({
       -- running text -- a plain paragraph carries no captures beyond `@spell` --
       -- so dimming `(an aside)` cannot be a treesitter query. This is the regex
       -- layer that can, with treesitter consulted only to decide whether a match
-      -- is really prose. See lua/custom/markdown_prose.lua.
+      -- is really prose. See plugins/prose.nvim/lua/prose/highlight.lua.
       require('mini.hipatterns').setup {
-        highlighters = require('custom.markdown_prose').highlighters(),
+        highlighters = require('prose.highlight').highlighters(),
       }
 
       -- Simple and easy statusline.

@@ -5,8 +5,8 @@
 -- several instructions packed into one sentence.
 --
 -- It never runs on its own -- not on save, not on quit -- only from `<leader>pr`
--- (after/ftplugin/markdown.lua). The output is a hint, never a rewrite: the point
--- is to practise the rewrite yourself.
+-- or :ProseReview (prose/init.lua). The output is a hint, never a rewrite: the
+-- point is to practise the rewrite yourself.
 
 local M = {}
 
@@ -65,7 +65,7 @@ end
 -- Claude Code waits for the editor to exit before it submits, so a review still
 -- in flight must never hold Neovim open, or outlive it and keep spending tokens.
 -- ExitPre as well as VimLeavePre: `:wq` on a zen-ed prompt buffer (the QuitPre ->
--- `qa` path in init.lua) exits without ever firing VimLeavePre. Verified in a
+-- `qa` path in the nvim config's init.lua) exits without ever firing VimLeavePre. Verified in a
 -- tmux-driven nvim; with VimLeavePre alone the child was reparented and kept running.
 local group = vim.api.nvim_create_augroup('prose-review', { clear = true })
 vim.api.nvim_create_autocmd({ 'ExitPre', 'VimLeavePre' }, {

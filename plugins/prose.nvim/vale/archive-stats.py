@@ -9,7 +9,7 @@ worst examples. "Worst" means "sitting in the longest sentence", for every rule.
 Everything stays local: the archive holds private prompts, so nothing is sent
 to any model or service. --no-examples prints numbers only, no archive text.
 
-    python3 vale/archive-stats.py [--no-examples]
+    python3 vale/archive-stats.py [--no-examples]   # from the plugin root
 """
 
 import argparse

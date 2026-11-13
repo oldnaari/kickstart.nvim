@@ -115,7 +115,7 @@ local function rows(p)
 end
 
 ---Groups that are neither treesitter nor render-markdown: plain extmarks added
----by lua/custom/markdown_prose.lua over text that has no node of its own.
+---by prose.nvim (prose/highlight.lua) over text that has no node of its own.
 ---
 ---These are the one place in this file where the two-mode split does NOT apply.
 ---Extmarks are not gated by `render_modes`, so a single definition already

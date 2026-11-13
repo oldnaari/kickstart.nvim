@@ -10,7 +10,7 @@ vim.opt_local.spell = true
 vim.opt_local.spelllang = 'en_us'
 -- Check CamelCase words part by part: GenAI is Gen + AI, TypeScript is Type +
 -- Script, so neither needs a word list entry. A typo inside a part is still
--- caught. Word lists and `zgl`/`zgg` are in lua/custom/spell.lua.
+-- caught. Word lists and `zgl`/`zgg` are in prose.nvim (prose/spell.lua).
 vim.opt_local.spelloptions:append 'camel'
 vim.opt_local.linebreak = true -- wrap at word boundaries, not mid-word
 vim.opt_local.list = false -- listchars are noise in prose
@@ -37,22 +37,5 @@ vim.keymap.set('n', '<leader>dt', function()
   require('custom.markdown_toc').open()
 end, { buffer = true, desc = '[D]ocument [T]OC' })
 
--- Judgment-based review by `claude -p` (buried request, unclear referent, packed
--- instruction) into quickfix -- what Vale's patterns cannot catch. Only ever on
--- demand; see lua/custom/prose_review.lua.
-vim.keymap.set('n', '<leader>pr', function()
-  require('custom.prose_review').run(0)
-end, { buffer = true, desc = '[P]rose [R]eview' })
-
--- Alternatives for the word under the cursor; see lua/custom/word_alternatives.lua.
--- Synonyms = same meaning (WordNet). Fill = what fits here (language model).
-vim.keymap.set('n', '<leader>ps', function()
-  require('custom.word_alternatives').pick_synonym()
-end, { buffer = true, desc = '[P]rose [S]ynonyms' })
-vim.keymap.set('n', '<leader>pf', function()
-  require('custom.word_alternatives').pick_fill()
-end, { buffer = true, desc = '[P]rose [F]ill (what fits here)' })
-
--- `<C-x><C-t>` in insert mode completes the word before the cursor with its
--- WordNet synonyms.
-vim.opt_local.thesaurusfunc = "v:lua.require'custom.word_alternatives'.complete"
+-- The `<leader>p` prose keymaps (review, synonyms, fill) and `<C-x><C-t>`
+-- synonym completion come from prose.nvim, on its FileType autocmd.
