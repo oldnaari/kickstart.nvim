@@ -6,6 +6,7 @@
 --   Synonyms    what else MEANS this? WordNet (prose.alternatives, bin/syn)
 --   Fill        what else FITS HERE? a masked model (prose.alternatives, bin/fill)
 --   Highlight   dim parentheticals, colour quotes (prose.highlight)
+--   Roles       colour subject, action, object: a parser, bin/roles (prose.roles)
 --   Keyboard    type Armenian or Russian with the OS on English (prose.layout)
 --
 -- setup() only registers things: commands, a FileType autocmd, the spell lists,
@@ -29,6 +30,7 @@ M.defaults = {
     review = '<leader>pr',
     synonym = '<leader>ps',
     fill = '<leader>pf',
+    roles = '<leader>pg', -- toggles subject/action/object colouring
     layout = '<leader>k', -- opens the keyboard layout picker
   },
   -- Insert-mode keyboard layouts (Vim's 'keymap'); see prose/layout.lua.
@@ -76,6 +78,10 @@ local function attach(buf)
     require('prose.alternatives').pick_fill()
   end, '[P]rose [F]ill (what fits here)')
 
+  map(keys.roles, function()
+    require('prose.roles').toggle(0)
+  end, '[P]rose [G]rammar roles (subject, action, object)')
+
   map(keys.layout, function()
     require('prose.layout').pick(M.config.layouts)
   end, '[K]eyboard layout')
@@ -90,6 +96,10 @@ end
 local function default_highlights()
   vim.api.nvim_set_hl(0, 'MarkdownProseParen', { link = 'Comment', default = true })
   vim.api.nvim_set_hl(0, 'MarkdownProseString', { link = 'String', default = true })
+  vim.api.nvim_set_hl(0, 'ProseSubject', { link = 'Identifier', default = true })
+  vim.api.nvim_set_hl(0, 'ProseAction', { link = 'Statement', default = true })
+  vim.api.nvim_set_hl(0, 'ProseObject', { link = 'Type', default = true })
+  vim.api.nvim_set_hl(0, 'ProseNoun', { underdotted = true, default = true })
 end
 
 function M.setup(opts)
@@ -121,6 +131,9 @@ function M.setup(opts)
   vim.api.nvim_create_user_command('Fill', function()
     require('prose.alternatives').pick_fill()
   end, { desc = 'Words that fit in place of the one under the cursor (masked language model)' })
+  vim.api.nvim_create_user_command('ProseRoles', function()
+    require('prose.roles').toggle(0)
+  end, { desc = 'Toggle colouring of subjects, actions and objects (Stanza parser, bin/roles)' })
   vim.api.nvim_create_user_command('ProseReview', function()
     require('prose.review').run(0)
   end, { desc = 'Review the buffer with `claude -p`; findings go to quickfix' })

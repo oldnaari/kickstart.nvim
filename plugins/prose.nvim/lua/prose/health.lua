@@ -30,6 +30,35 @@ function M.check()
     vim.health.warn('`uv` not found: :Fill and <leader>pf are unavailable', { 'Install it with: ' .. alt.install_hint 'uv' })
   end
 
+  vim.health.start 'Grammar roles (prose/roles.lua)'
+
+  if vim.fn.executable 'uv' == 1 then
+    vim.health.ok '`uv` found: :ProseRoles and <leader>pg work'
+    -- Stanza keeps one folder per version and language under its cache.
+    local cache = vim.env.STANZA_RESOURCES_DIR
+      or (
+        vim.fn.has 'mac' == 1 and vim.fn.expand '~/Library/Caches/stanza/*/resources'
+        or (vim.env.XDG_CACHE_HOME or vim.fn.expand '~/.cache') .. '/stanza/*/resources'
+      )
+    local missing = {}
+    for _, lang in ipairs { 'en', 'ru', 'hy' } do
+      if vim.fn.glob(cache .. '/' .. lang, false, true)[1] == nil then
+        table.insert(missing, lang)
+      end
+    end
+    if #missing == 0 then
+      vim.health.ok 'Stanza models for en, ru and hy are cached'
+    else
+      vim.health.info(
+        ('No Stanza model yet for %s. The first paragraph in each language downloads it (300-600 MB, plus a 1 GB transformer for hy).'):format(
+          table.concat(missing, ', ')
+        )
+      )
+    end
+  else
+    vim.health.warn('`uv` not found: :ProseRoles and <leader>pg are unavailable', { 'Install it with: ' .. alt.install_hint 'uv' })
+  end
+
   vim.health.start 'Prose review (prose/review.lua)'
 
   if vim.fn.executable 'claude' == 1 then

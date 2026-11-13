@@ -131,6 +131,13 @@ local function extmark_groups(p)
     MarkdownProseParen = { fg = p.muted },
     -- "Quoted strings" in running prose.
     MarkdownProseString = { fg = p.green },
+    -- Grammar roles (prose.nvim, prose/roles.lua, toggled with <leader>pg):
+    -- who does what to whom. Other nouns get a dotted underline only, fainter
+    -- than a colour, and leave the quote and parenthetical colours showing.
+    ProseSubject = { fg = p.frost, bold = true },
+    ProseAction = { fg = p.yellow },
+    ProseObject = { fg = p.purple },
+    ProseNoun = { sp = p.blue, underdotted = true },
   }
 end
 

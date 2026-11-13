@@ -10,6 +10,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Synonyms  | What else means this?           | `<leader>ps`, `:Synonyms`, `<C-x><C-t>` | WordNet (`wn`)     |
 | Fill      | What else fits here?            | `<leader>pf`, `:Fill`                 | `uv`                 |
 | Highlight | Where are the asides?           | dims `(parentheticals)`, colours `"quotes"` | `mini.hipatterns` |
+| Roles     | Who does what to whom?          | `<leader>pg`, `:ProseRoles` (toggle)  | `uv`                 |
 | Keyboard  | Type Armenian or Russian?       | `<leader>k` picker, `<C-^>` in Insert | `telescope.nvim` (optional) |
 
 `:checkhealth prose` reports which of these tools are installed.
@@ -22,10 +23,11 @@ lua/prose/review.lua        claude -p review into quickfix
 lua/prose/alternatives.lua  synonyms and fill
 lua/prose/spell.lua         the two word lists, plus compiling spell/*.add
 lua/prose/highlight.lua     mini.hipatterns highlighters
+lua/prose/roles.lua         subject/action/object colouring from bin/roles
 lua/prose/layout.lua        keyboard layout switching
 lua/prose/health.lua        :checkhealth prose
 keymap/                     Armenian keymap matching the macOS HM QWERTY layout
-bin/syn, bin/fill           command-line tools; setup() puts bin/ on $PATH
+bin/syn, bin/fill, bin/roles  command-line tools; setup() puts bin/ on $PATH
 vale/                       Vale config and the Prompt style
 ```
 
@@ -48,7 +50,7 @@ The defaults:
 ```lua
 {
   filetypes = { 'markdown' },
-  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', layout = '<leader>k' }, -- each may be false
+  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', layout = '<leader>k' }, -- each may be false
   layouts = { -- in the <leader>k picker, `key` picks at once; keymap = '' means English
     { key = 'e', name = 'English', keymap = '' },
     { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
@@ -71,6 +73,19 @@ Two parts stay in your own config:
   ```
 
   The groups `MarkdownProseParen` and `MarkdownProseString` link to `Comment` and `String` unless your theme defines them.
+
+## Roles
+
+`<leader>pg` colours each sentence's subject, action (the verb, with its auxiliaries: "did not give up", "գրում եմ") and object, and puts a dotted underline under the other nouns. A dependency parser (Stanza, in `bin/roles`) labels the words; treesitter and regex cannot, because word order does not give it away ("Книгу читает мальчик": the object comes first). The language is picked from the letters, sentence by sentence, so a paragraph may mix English, Russian and Armenian.
+
+What to expect:
+
+- **Accuracy.** On the test sentences, English and Russian were right throughout, and Armenian in 19 of 20. Armenian uses Stanza's transformer-based package, because the default one got 15 of 20. Expect mistakes on long or unusual Armenian sentences.
+- **No subject is not a bug.** Imperatives ("Write a function") have no subject word, and neither does Armenian when the verb ending carries it ("Գնացի տուն"). Roles are grammatical, so "The bug was fixed by Ann" has *bug* as its subject.
+- **Cost.** It is off until you toggle it. The first toggle starts `bin/roles`, which loads each language's model on first use (5-20 s each) and holds about 2 GB of memory with all three loaded. It stops when the last buffer turns roles off. The first run downloads the models: about 300 MB each for English and Russian, and about 1.6 GB for Armenian.
+- **Live.** After an edit, only the paragraphs whose text changed are parsed again, about 60 ms each.
+
+`bin/roles --show < file.md` prints the roles in brackets, which is handy for checking a sentence. The groups `ProseSubject`, `ProseAction`, `ProseObject` and `ProseNoun` link to `Identifier`, `Statement` and `Type`, and a dotted underline, unless your theme defines them.
 
 The keyboard layouts use Vim's `'keymap'`, so the OS layout stays on English and Normal-mode commands keep working. The `<leader>k` picker opens in Normal mode: pick with j/k or the arrows and Enter, or press a layout's key. Without Telescope it falls back to `vim.ui.select`. The Armenian keymap's Option-layer letters (ը, շ, է, …) need a terminal that sends Option as Alt, such as iTerm2 with Option set to Esc+.
 

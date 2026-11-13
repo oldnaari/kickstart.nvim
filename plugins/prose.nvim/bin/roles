@@ -1,0 +1,458 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# # Pinned so every machine gets the versions this was tested with. torch is
+# # fill's pin, so the two tools share one download.
+# dependencies = ["stanza==1.15.0", "torch==2.15.0", "transformers==5.22.2"]
+#
+# # PyPI's Linux torch wheels pull in CUDA, several GB. The CPU build is enough.
+# [[tool.uv.index]]
+# name = "pytorch-cpu"
+# url = "https://download.pytorch.org/whl/cpu"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+# ///
+"""Mark who does what to whom: subjects, actions, objects and other nouns.
+
+A dependency parser (Stanza) reads each paragraph and labels its words. English,
+Russian and Armenian are told apart by their letters, per paragraph.
+
+    roles --show < draft.md      # read text, print it with [brackets]S
+    roles                        # JSON lines on stdin and stdout, for Neovim
+
+The JSON protocol: each input line is a paragraph, {"id": ..., "text": "..."},
+or a list of them. A list is parsed in bulk, about five times faster. Each
+paragraph gets its own output line, {"id": ..., "lang": "en", "spans": [[start,
+end, role], ...]} or {"id": ..., "error": "..."}, where start and end are UTF-8
+byte offsets into text and role is one of subject, action, object, noun. A
+paragraph with no letters gets lang null and no spans.
+
+Roles are grammatical, not semantic: in "The bug was fixed by Ann" the subject
+is "bug". A sentence can lack one: imperatives have no subject word, Armenian
+leaves it out when the verb ending says it, Russian "Он — врач" has no verb.
+
+Models download once into Stanza's cache ($STANZA_RESOURCES_DIR, by default
+~/Library/Caches/stanza on macOS and ~/.cache/stanza on Linux) and load offline
+after that: about 300 MB each for English and Russian, and for Armenian 600 MB
+plus a 1 GB transformer (xlm-roberta-base, into the Hugging Face cache). With
+all three loaded the process takes about 2 GB of memory.
+"""
+
+import argparse
+import contextlib
+import json
+import os
+import re
+import sys
+import time
+import unicodedata
+
+# Stanza adds mwt (multi-word tokens, "don't" = do + n't) where a language has it.
+PROCESSORS = "tokenize,pos,lemma,depparse"
+
+# Stanza package per language, overridable as ROLES_PACKAGE_EN and so on.
+# Armenian has the least training data, and its default package got the roles
+# right in 15 of 20 test sentences; the transformer-based one in 19 of 20.
+# English and Russian were right throughout with the default.
+PACKAGES = {"en": "default", "ru": "default", "hy": "default_accurate"}
+
+
+def package(lang):
+    return os.environ.get(f"ROLES_PACKAGE_{lang.upper()}") or PACKAGES[lang]
+
+
+# Children that belong to a subject's or object's core phrase: articles,
+# adjectives, numbers, possessors, the parts of compounds and names. Not
+# prepositional phrases or clauses.
+CORE = {"det", "det:poss", "amod", "nummod", "compound", "flat", "flat:name", "flat:foreign", "nmod:poss"}
+
+# Children that are part of the action: auxiliaries, phrasal particles.
+ACTION_PARTS = {"aux", "aux:pass", "compound:prt"}
+
+# Negation that is a separate word: "not", "не". (Armenian negates the
+# auxiliary itself, "չեմ", which ACTION_PARTS already takes.)
+NEGATION = {"not", "n't", "never", "не", "ни"}
+
+# A participle used as an adjective is not an action: "the written text".
+NOT_ACTION = {"amod", "compound", "flat", "fixed", "det"}
+
+
+# --- language ---------------------------------------------------------------
+
+
+def detect(text):
+    """(lang, letters): 'hy', 'ru' or 'en' by the majority of letters, and how
+    many letters voted for it. lang is None if there are no letters.
+
+    "x" does not vote: Neovim masks inline code and links as runs of x, which
+    would otherwise outvote a short Armenian or Russian sentence."""
+    counts = {"hy": 0, "ru": 0, "en": 0}
+    for ch in text:
+        o = ord(ch)
+        if 0x0531 <= o <= 0x0587 or 0xFB13 <= o <= 0xFB17:
+            counts["hy"] += 1
+        elif 0x0400 <= o <= 0x04FF:
+            counts["ru"] += 1
+        elif ch.isalpha() and ch.isascii() and ch not in "xX":
+            counts["en"] += 1
+    lang = max(counts, key=counts.get)
+    return (lang if counts[lang] else None), counts[lang]
+
+
+# A paragraph can switch language between sentences: an Armenian note that
+# quotes an English line. It is cut only where the language changes, so the
+# usual one-language paragraph is parsed whole.
+SENTENCE_END = re.compile(r"(?<=[.!?\u0589\u2026])\s+")
+# A sentence with fewer letters than this ("OK.", "1.") says little about its
+# language and joins its neighbour's run.
+MIN_LETTERS = 4
+
+
+def runs(text):
+    """[(lang, start, end)]: runs of sentences in one language, as character
+    offsets into text. Empty when text has no letters."""
+    out = []  # [lang, start, end, letters]
+    pos = 0
+    bounds = [m.end() for m in SENTENCE_END.finditer(text)] + [len(text)]
+    for end in bounds:
+        if end <= pos:
+            continue
+        lang, n = detect(text[pos:end])
+        if out and (lang is None or n < MIN_LETTERS or lang == out[-1][0]):
+            out[-1][2] = end
+            out[-1][3] += n if lang == out[-1][0] else 0
+        else:
+            out.append([lang, pos, end, n])
+        pos = end
+    # A weak first run ("OK. Это работает.") joins the next one.
+    if len(out) > 1 and (out[0][0] is None or out[0][3] < MIN_LETTERS):
+        out[1][1] = out[0][1]
+        out.pop(0)
+    return [(lang, s, e) for lang, s, e, _ in out if lang]
+
+
+# Armenian ends sentences with ։ but it is often typed as a colon. One
+# character for one, so character offsets do not move.
+ARMENIAN_COLON = re.compile(r"(?<=[Ա-և]):(?=\s|$)")
+
+
+def normalise(text, lang):
+    if lang == "hy":
+        text = ARMENIAN_COLON.sub("։", text)
+    return text
+
+
+# --- parsing ----------------------------------------------------------------
+
+
+class Parsers:
+    """One Stanza pipeline per language, loaded on first use."""
+
+    def __init__(self, log):
+        self.log = log
+        self.pipelines = {}
+
+    def get(self, lang):
+        if lang not in self.pipelines:
+            self.pipelines[lang] = self.load(lang)
+        return self.pipelines[lang]
+
+    def load(self, lang):
+        t = time.monotonic()
+        with quiet_stderr() as real_stderr:
+            import stanza
+            from stanza.resources.common import DEFAULT_MODEL_DIR
+
+            pkg = package(lang)
+            if not os.path.isdir(os.path.join(DEFAULT_MODEL_DIR, lang)):
+                os.write(real_stderr, f"roles: downloading the Stanza model for {lang} (one time)...\n".encode())
+            pipeline = stanza.Pipeline(
+                lang=lang,
+                package=pkg,
+                processors=PROCESSORS,
+                download_method=stanza.DownloadMethod.REUSE_RESOURCES,
+                logging_level="ERROR",
+                use_gpu=False,
+            )
+        self.log(f"roles: loaded {lang} ({pkg}) in {time.monotonic() - t:.1f}s")
+        return pipeline
+
+    def parse(self, lang, texts):
+        """Stanza documents for texts, all in one language, parsed in bulk."""
+        pipeline = self.get(lang)
+        import stanza
+
+        return pipeline.bulk_process([stanza.Document([], text=normalise(t, lang)) for t in texts])
+
+
+@contextlib.contextmanager
+def quiet_stderr():
+    """Silence fd 2: Stanza and torch print warnings and progress bars."""
+    sys.stderr.flush()
+    real = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 2)
+    try:
+        yield real
+    finally:
+        sys.stderr.flush()
+        os.dup2(real, 2)
+        os.close(devnull)
+        os.close(real)
+
+
+def word_range(word):
+    """Character range of a word. Words inside a multi-word token ("don't" is
+    do + n't) have no range of their own, so they take the token's."""
+    if word.start_char is not None:
+        return word.start_char, word.end_char
+    return word.parent.start_char, word.parent.end_char
+
+
+def sentence_roles(sent):
+    """[(start_char, end_char, role)] for one sentence."""
+    words = {w.id: w for w in sent.words}
+    children = {i: [] for i in words}
+    for w in sent.words:
+        if w.head:
+            children[w.head].append(w)
+
+    def base(rel):
+        return (rel or "").split(":")[0]
+
+    def descendants(i):
+        out, stack = set(), [i]
+        while stack:
+            for c in children[stack.pop()]:
+                out.add(c.id)
+                stack.append(c.id)
+        return out
+
+    def phrase(head, keep):
+        """The head with its `keep` children (and theirs), if they form one
+        unbroken run of the head's own words; otherwise the head alone."""
+        ids, stack = {head.id}, [head.id]
+        while stack:
+            for c in children[stack.pop()]:
+                if c.deprel in keep:
+                    ids.add(c.id)
+                    stack.append(c.id)
+        lo, hi = min(ids), max(ids)
+        inside = descendants(head.id) | {head.id}
+        if not all(i in inside for i in range(lo, hi + 1)):
+            lo = hi = head.id
+        return list(range(lo, hi + 1))
+
+    taken = {}  # word id -> role
+    spans = []
+
+    def mark(ids, role):
+        ids = [i for i in ids if i not in taken]
+        if not ids:
+            return
+        for i in ids:
+            taken[i] = role
+        # One span per unbroken run of ids.
+        run = [ids[0]]
+        for i in ids[1:] + [None]:
+            if i is not None and i == run[-1] + 1:
+                run.append(i)
+                continue
+            s, _ = word_range(words[run[0]])
+            _, e = word_range(words[run[-1]])
+            spans.append((s, e, role))
+            run = [i]
+
+    # Subjects and objects, then whatever they are conjoined with: in "Ann and
+    # Bob", Bob is a conj of Ann and a subject too.
+    heads = []
+    for w in sent.words:
+        rel = base(w.deprel)
+        if rel == "nsubj":
+            heads.append((w, "subject"))
+        elif rel in ("obj", "iobj"):
+            heads.append((w, "object"))
+        elif w.deprel == "compound:lvc" and w.upos == "NOUN":
+            # Armenian marks a bare object noun as part of the verb: "նամակ
+            # եմ գրում" (I write letters). Read, it is still the object.
+            heads.append((w, "object"))
+    i = 0
+    while i < len(heads):
+        w, role = heads[i]
+        heads.extend((c, role) for c in children[w.id] if c.deprel == "conj")
+        i += 1
+    for w, role in heads:
+        mark(phrase(w, CORE), role)
+
+    # Actions: verbs that head a clause, with their auxiliaries, particles and
+    # negation; and the copula, the verb of "The code is slow". Each word is
+    # marked on its own, since "did not write" has words in between.
+    for w in sent.words:
+        is_verb = w.upos == "VERB" and w.deprel not in NOT_ACTION
+        is_copula = base(w.deprel) == "cop"
+        if not (is_verb or is_copula):
+            continue
+        ids = [w.id]
+        if is_verb:
+            for c in children[w.id]:
+                if c.deprel in ACTION_PARTS or (base(c.deprel) == "advmod" and (c.lemma or c.text).lower() in NEGATION):
+                    ids.append(c.id)
+        mark(sorted(ids), "action")
+
+    # Every other noun, with the rest of its compound or name ("New York").
+    for w in sent.words:
+        if w.upos in ("NOUN", "PROPN") and w.id not in taken:
+            mark(phrase(w, {"compound", "flat", "flat:name", "flat:foreign"}), "noun")
+
+    return spans
+
+
+def analyse(parsers, paras):
+    """Yield (index, {"id", "lang", "spans"} or {"id", "error"}) for paragraphs
+    [{"id", "text"}]. lang is the paragraph's main language. Each language's
+    text is parsed together, in bulk, and a paragraph is yielded as soon as all
+    its languages are done: English need not wait for the Armenian model."""
+    jobs = {}  # lang -> [(paragraph index, run start, run text)]
+    left = {}  # paragraph index -> runs not yet parsed
+    found = {}  # paragraph index -> character spans so far
+    errors = {}
+    main = {}
+    for i, p in enumerate(paras):
+        rs = runs(p["text"])
+        if not rs:
+            yield i, {"id": p.get("id"), "lang": None, "spans": []}
+            continue
+        left[i], found[i] = len(rs), []
+        main[i] = max(rs, key=lambda r: r[2] - r[1])[0]
+        for lang, s, e in rs:
+            jobs.setdefault(lang, []).append((i, s, p["text"][s:e]))
+
+    for lang, items in jobs.items():
+        try:
+            docs = parsers.parse(lang, [t for _, _, t in items])
+            for (i, s, t), doc in zip(items, docs):
+                found[i].extend((a + s, b + s, role) for a, b, role in char_spans(doc, t, lang))
+        except Exception as e:  # report and keep serving: one bad batch is not fatal
+            for i, _, _ in items:
+                errors[i] = f"{type(e).__name__}: {e}"
+        for i, _, _ in items:
+            left[i] -= 1
+            if left[i] == 0:
+                p = paras[i]
+                if i in errors:
+                    yield i, {"id": p.get("id"), "error": errors[i]}
+                else:
+                    yield i, {"id": p.get("id"), "lang": main[i], "spans": to_bytes(p["text"], found[i])}
+
+
+def char_spans(doc, text, lang):
+    """[(start, end, role)] in character offsets for one parsed run of text."""
+    spans = [span for sent in doc.sentences for span in sentence_roles(sent)]
+    if lang == "hy":
+        spans = attach_endings(text, spans)
+    return spans
+
+
+def to_bytes(text, spans):
+    """Character offsets to UTF-8 byte offsets: Armenian and Cyrillic letters
+    are two bytes each."""
+    byte_at = [0]
+    for ch in text:
+        byte_at.append(byte_at[-1] + len(ch.encode()))
+    return sorted([byte_at[s], byte_at[e], role] for s, e, role in spans)
+
+
+# "Google-ը", "API-ի": the tokenizer splits an Armenian ending written after a
+# hyphen from its word. Whichever half got a role, the span takes in the other.
+ENDING_AFTER = re.compile(r"-[\u0531-\u0587]+")
+WORD_BEFORE = re.compile(r"[^\s\u0531-\u0587-]+-$")
+PRIORITY = {"subject": 0, "object": 0, "action": 1, "noun": 2}
+
+
+def attach_endings(text, spans):
+    grown = []
+    for s, e, role in spans:
+        m = ENDING_AFTER.match(text, e)
+        if m:
+            e = m.end()
+        m = WORD_BEFORE.search(text, max(0, s - 64), s)
+        if m and text[s : s + 1].isalpha() and not text[s].isascii():
+            s = m.start()
+        grown.append((s, e, role))
+    # A grown span can now cover a neighbour: keep the higher-priority one.
+    grown.sort(key=lambda x: (PRIORITY[x[2]], x[0]))
+    kept = []
+    for s, e, role in grown:
+        if not any(ks < e and s < ke for ks, ke, _ in kept):
+            kept.append((s, e, role))
+    return kept
+
+
+# --- front ends -------------------------------------------------------------
+
+
+def serve(parsers):
+    """JSON lines until stdin closes; see the protocol at the top."""
+    def reply(obj):
+        sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+            paras = [req] if isinstance(req, dict) else req
+            if not isinstance(paras, list) or not all(isinstance(p, dict) and isinstance(p.get("text"), str) for p in paras):
+                raise ValueError('expected {"id", "text"} or a list of them')
+        except ValueError as e:
+            reply({"id": None, "error": f"bad request: {e}"})
+            continue
+        for _, out in analyse(parsers, paras):
+            reply(out)
+
+
+TAGS = {"subject": "S", "action": "A", "object": "O", "noun": "N"}
+
+
+def show(parsers, text, nouns):
+    """Print each paragraph with its roles in brackets: [The old man]S."""
+    paras = [{"text": p} for p in re.split(r"\n\s*\n", text) if p.strip()]
+    results = dict(analyse(parsers, paras))
+    for i, para in enumerate(paras):
+        res = results[i]
+        if "error" in res:
+            print(f"error: {res['error']}")
+            continue
+        raw = para["text"].encode()
+        out, pos = [], 0
+        for s, e, role in res["spans"]:
+            if role == "noun" and not nouns:
+                continue
+            out.append(raw[pos:s].decode())
+            out.append(f"[{raw[s:e].decode()}]{TAGS[role]}")
+            pos = e
+        out.append(raw[pos:].decode())
+        print(f"{res['lang']}: {''.join(out).strip()}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--show", action="store_true", help="read text, print it with roles in brackets")
+    parser.add_argument("--no-nouns", action="store_true", help="with --show, leave other nouns unmarked")
+    args = parser.parse_args()
+
+    def log(msg):
+        print(msg, file=sys.stderr, flush=True)
+
+    parsers = Parsers(log)
+    if args.show:
+        show(parsers, unicodedata.normalize("NFC", sys.stdin.read()), not args.no_nouns)
+    else:
+        serve(parsers)
+
+
+if __name__ == "__main__":
+    main()
