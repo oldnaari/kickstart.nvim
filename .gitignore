@@ -4,4 +4,8 @@ test.sh
 nvim
 
 spell/*.spl
+# Language spell files are committed so every machine has them: hy is built by
+# spell/build-hy.sh in ~30 min, ru comes from Vim's spell server.
+!spell/hy.utf-8.spl
+!spell/ru.utf-8.spl
 lazy-lock.json

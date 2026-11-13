@@ -1,0 +1,29 @@
+spell/ru.utf-8.spl -- Neovim spell file for Russian
+
+Downloaded unchanged from Vim's spell file server, where Neovim's own
+"Download?" prompt fetches it from:
+
+  https://ftp.nluug.nl/pub/vim/runtime/spell/ru.utf-8.spl
+
+Committed so every machine has it without that prompt. The matching .sug file
+(ru.utf-8.sug, 3.5 MB, sound-alike suggestions) is left out: z= works without it.
+
+Vim built it from the OpenOffice.org/MySpell ru_RU dictionary, which is
+Alexander Lebedev's RUS-ISPELL. The licence, reproduced from Vim's
+README_ru.txt:
+
+The main components of RUS-ISPELL package:
+
+    * the Russian affix file (russian.aff.koi) and
+    * a set of dictionaries (base.koi, abbrev.koi, computer.koi,
+      for_name.koi, geography.koi, rare.koi, science.koi)
+
+in their original encoding (koi8-r) and any other encoding produced
+from it as well as affix file and dictionaries prepared from the
+above files for MySpell spell checker are copyright (c) 1997-2004
+by Alexander Lebedev.
+
+Permission to use, copy, redistribute is granted.  Permission to
+redistribute modifications in patch form is granted.  Permission
+to redistribute binaries made of modified sources is granted.
+All other rights reserved.

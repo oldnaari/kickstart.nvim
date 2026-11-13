@@ -1,0 +1,27 @@
+spell/hy.utf-8.spl -- Neovim spell file for Eastern Armenian
+
+Compiled by spell/build-hy.sh with Neovim's :mkspell from the Hunspell
+dictionary "dictionary-hy":
+
+  https://github.com/wooorm/dictionaries/tree/8cfea406b505e4d7df52d5a19bce525df98c54ab/dictionaries/hy
+
+which wooorm/dictionaries generated from araktransfer:
+
+  https://sites.google.com/site/araktransfer/home/spell-checkers
+
+Changes made before compiling (details in spell/build-hy.sh):
+
+  - index.aff: a "." condition added to the seven rules in suffix block GX
+    that have none; IGNOREEXTRA added; the VD block's rule count corrected
+    from 171 to 172.
+  - index.dic: each entry spelled with "եւ" duplicated with the ligature "և".
+
+The dictionary's licence, reproduced from dictionaries/hy/license:
+
+GPL 2.0/LGPL 2.1/MPL 1.1 tri-license
+
+The contents of this software may be used under the terms of the GNU General
+Public License Version 2 or later (the "GPL", see COPYING.GPL), or the GNU
+Lesser General Public License Version 2.1 or later (the "LGPL", see
+COPYING.LGPL) or the Mozilla Public License Version 1.1 or later (the "MPL",
+see COPYING.MPL).
