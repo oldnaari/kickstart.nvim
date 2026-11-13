@@ -559,7 +559,9 @@ require('lazy').setup({
     name = 'prose.nvim',
     main = 'prose',
     lazy = false,
-    opts = {},
+    opts = {
+      roles = true, -- subject/action/object colours in every markdown file; <leader>pg turns them off
+    },
   },
   -- lua/plugins/pencil.lua
   {

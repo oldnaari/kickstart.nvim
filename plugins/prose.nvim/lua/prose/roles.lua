@@ -13,8 +13,13 @@
 --
 --   toggle(buf) -> refresh(buf): treesitter finds the paragraphs; inline markup
 --   is blanked to spaces of the same length, so byte offsets map straight back
---   -> paragraphs not in the cache go to bin/roles, nearest the cursor first
---   -> each result lands in the cache and triggers a repaint.
+--   -> paragraphs in view (and a screen either side) that are not in the cache
+--   go to bin/roles, nearest the cursor first -> each result lands in the cache
+--   and triggers a repaint. Scrolling repaints, which sends what came into view.
+--
+-- Only what is shown, because a long file would otherwise queue all of itself:
+-- a month of the prompt archive is 3,300 paragraphs.
+-- With setup { roles = true } it turns on in every file of `filetypes`.
 --
 -- One shared parser serves every buffer of every Neovim: `bin/roles --daemon`,
 -- on a socket in stdpath('state'). The first Neovim to need it starts it and
@@ -32,6 +37,11 @@ local M = {}
 
 M.debounce_ms = 300
 M.batch = 16 -- paragraphs per request; bin/roles parses a batch in bulk
+-- Parse this many window heights above and below what is shown, so text
+-- scrolled into view is usually coloured already.
+M.margin = 1
+-- Parsed paragraphs remembered beyond those in view, per buffer.
+M.cache_size = 2000
 -- How long each language stays loaded after its last use: 'forever', '0', or a
 -- number with s, m or h. Read by the Neovim that starts the shared parser.
 -- Loading again costs about 5 s for Russian and 12 s for Armenian.
@@ -75,14 +85,31 @@ local BLANK = { emphasis_delimiter = true, html_tag = true, image = true }
 -- Links keep their visible text only: [text](url) reads as "text".
 local LINKS = { inline_link = true, full_reference_link = true, collapsed_reference_link = true, shortcut_link = true }
 
----Prose paragraphs of `buf`, with inline markup masked.
+---Prose paragraphs of `buf` that touch any of `ranges`, with inline markup
+---masked. Only those, because a long file costs: all 3,300 paragraphs of a
+---7,900-line file take 80 ms, which would be felt on every scroll and edit.
+---@param ranges integer[][] 0-based {first, last} rows
 ---@return {row: integer, text: string, starts: integer[], nospan: table<integer, integer[][]>}[]
-local function paragraphs(buf)
+local function paragraphs(buf, ranges)
   local ok, parser = pcall(vim.treesitter.get_parser, buf, 'markdown')
-  if not ok or not parser then
+  if not ok or not parser or #ranges == 0 then
     return {}
   end
-  parser:parse(true)
+  local first, last = math.huge, 0
+  for _, r in ipairs(ranges) do
+    first, last = math.min(first, r[1]), math.max(last, r[2])
+  end
+  first = math.max(first, 0)
+  local function inside(node)
+    local sr, _, er = node:range()
+    for _, r in ipairs(ranges) do
+      if sr <= r[2] and er >= r[1] then
+        return true
+      end
+    end
+    return false
+  end
+  parser:parse { first, last + 1 } -- the inline trees of this stretch only
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local nospan = {} ---@type table<integer, integer[][]> row -> {{s, e}}: never paint here
 
@@ -106,7 +133,8 @@ local function paragraphs(buf)
   local function mask(node)
     for child in node:iter_children() do
       local t = child:type()
-      if OPAQUE[t] then
+      if not inside(child) then -- skip it
+      elseif OPAQUE[t] then
         local sr, sc, er, ec = child:range()
         fill(sr, sc, er, ec, 'x', true)
         for d in child:iter_children() do
@@ -138,46 +166,50 @@ local function paragraphs(buf)
 
   local inline = parser:children().markdown_inline
   for _, tree in ipairs(inline and inline:trees() or {}) do
-    mask(tree:root())
+    if inside(tree:root()) then
+      mask(tree:root())
+    end
   end
 
   local out = {}
   for _, tree in ipairs(parser:trees()) do
-    for _, node in M.query():iter_captures(tree:root(), buf) do
-      local sr, sc, er, ec = node:range()
-      if ec == 0 and er > sr then -- ends at the start of the next line
-        er = er - 1
-        ec = #(lines[er + 1] or '')
-      end
-      -- "> " in a quote, the indent of a list item's later lines: children
-      -- of the paragraph or of its `inline` node.
-      local function continuations(n)
-        for _, child in ipairs(n:named_children()) do
-          if child:type() == 'block_continuation' then
-            local a, b, c, d = child:range()
-            fill(a, b, c, d, ' ')
-          else
-            continuations(child)
+    for _, node in M.query():iter_captures(tree:root(), buf, first, last + 1) do
+      if inside(node) then
+        local sr, sc, er, ec = node:range()
+        if ec == 0 and er > sr then -- ends at the start of the next line
+          er = er - 1
+          ec = #(lines[er + 1] or '')
+        end
+        -- "> " in a quote, the indent of a list item's later lines: children
+        -- of the paragraph or of its `inline` node.
+        local function continuations(n)
+          for _, child in ipairs(n:named_children()) do
+            if child:type() == 'block_continuation' then
+              local a, b, c, d = child:range()
+              fill(a, b, c, d, ' ')
+            else
+              continuations(child)
+            end
           end
         end
-      end
-      continuations(node)
-      local parts, starts, pos = {}, {}, 0
-      for r = sr, er do
-        local l = lines[r + 1] or ''
-        if r == er then
-          l = l:sub(1, ec)
+        continuations(node)
+        local parts, starts, pos = {}, {}, 0
+        for r = sr, er do
+          local l = lines[r + 1] or ''
+          if r == er then
+            l = l:sub(1, ec)
+          end
+          if r == sr then
+            l = (' '):rep(sc) .. l:sub(sc + 1) -- the list marker or "> " before it
+          end
+          parts[#parts + 1] = l
+          starts[#starts + 1] = pos
+          pos = pos + #l + 1
         end
-        if r == sr then
-          l = (' '):rep(sc) .. l:sub(sc + 1) -- the list marker or "> " before it
+        local text = table.concat(parts, '\n')
+        if text:find '%S' then
+          out[#out + 1] = { row = sr, text = text, starts = starts, nospan = nospan }
         end
-        parts[#parts + 1] = l
-        starts[#starts + 1] = pos
-        pos = pos + #l + 1
-      end
-      local text = table.concat(parts, '\n')
-      if text:find '%S' then
-        out[#out + 1] = { row = sr, text = text, starts = starts, nospan = nospan }
       end
     end
   end
@@ -499,12 +531,30 @@ end
 
 -- --- painting ----------------------------------------------------------------
 
+---Rows of `buf` worth parsing now: each window's view, padded by M.margin
+---window heights. Empty when no window shows it.
+---@return integer[][] 0-based {first, last} pairs
+local function shown(buf)
+  local ranges = {}
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    local info = vim.fn.getwininfo(win)[1]
+    if info then
+      local pad = info.height * M.margin
+      -- botline is only fresh after a redraw; topline + height covers a view
+      -- that has just scrolled. Closed folds can show more, hence the max.
+      local last = math.max(info.botline, info.topline + info.height)
+      ranges[#ranges + 1] = { info.topline - 1 - pad, last - 1 + pad }
+    end
+  end
+  return ranges
+end
+
 local function paint(buf)
   local st = bufs[buf]
   if not st or not vim.api.nvim_buf_is_valid(buf) then
     return
   end
-  local paras = paragraphs(buf)
+  local paras = paragraphs(buf, shown(buf))
   local cache, missing, seen = {}, {}, {}
   for _, p in ipairs(paras) do
     if st.cache[p.text] then
@@ -514,7 +564,19 @@ local function paint(buf)
       missing[#missing + 1] = p
     end
   end
-  st.cache = cache -- drop paragraphs that no longer exist
+  -- Paragraphs out of view keep their results, so scrolling back costs
+  -- nothing. Up to M.cache_size of them: edits leave old texts behind, and
+  -- only a full scan could tell those apart.
+  local kept = 0
+  for text, spans in pairs(st.cache) do
+    if kept >= M.cache_size then
+      break
+    end
+    if not cache[text] then
+      cache[text], kept = spans, kept + 1
+    end
+  end
+  st.cache = cache
 
   -- Clear everywhere except paragraphs still waiting on the parser: their old
   -- marks have moved with the text as it was edited, and are a better guess
@@ -560,6 +622,23 @@ function refresh(buf, delay)
   end)
 end
 
+-- Scrolling or resizing a window brings new paragraphs into view.
+vim.api.nvim_create_autocmd({ 'WinScrolled', 'WinResized' }, {
+  group = group,
+  callback = function()
+    local wins = vim.v.event.windows or vim.tbl_keys(vim.v.event) -- WinResized, WinScrolled
+    for _, id in ipairs(wins) do
+      local win = tonumber(id)
+      if win and vim.api.nvim_win_is_valid(win) then
+        local buf = vim.api.nvim_win_get_buf(win)
+        if bufs[buf] then
+          refresh(buf, 100)
+        end
+      end
+    end
+  end,
+})
+
 -- --- on and off --------------------------------------------------------------
 
 function M.enabled(buf)
@@ -595,17 +674,29 @@ function M.disable(buf)
   end
 end
 
-function M.enable(buf)
+---@param opts? {auto?: boolean} auto: turned on by setup { roles = true }, not
+---by hand. Silent, skips buffers where roles were turned off by hand, and does
+---not retry a parser that failed.
+function M.enable(buf, opts)
   buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
-  if bufs[buf] then
+  local auto = opts and opts.auto
+  if bufs[buf] or (auto and vim.b[buf].prose_roles == false) then
     return
   end
   bufs[buf] = { cache = {}, pending = {}, timer = assert(vim.uv.new_timer()) }
+  vim.b[buf].prose_roles = nil
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'InsertLeave' }, {
     group = group,
     buffer = buf,
     callback = function()
       refresh(buf)
+    end,
+  })
+  vim.api.nvim_create_autocmd('BufWinEnter', {
+    group = group,
+    buffer = buf,
+    callback = function()
+      refresh(buf, 0)
     end,
   })
   vim.api.nvim_create_autocmd('BufWipeout', {
@@ -615,8 +706,10 @@ function M.enable(buf)
       M.disable(buf)
     end,
   })
-  failed, drops = false, {} -- turning roles on is the way to try again
-  notify 'On'
+  if not auto then
+    failed, drops = false, {} -- turning roles on is the way to try again
+    notify 'On'
+  end
   paint(buf)
 end
 
@@ -624,6 +717,7 @@ function M.toggle(buf)
   buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
   if bufs[buf] then
     M.disable(buf)
+    vim.b[buf].prose_roles = false -- stays off when the file is reloaded
     notify 'Off'
   else
     M.enable(buf)
@@ -667,11 +761,13 @@ function M.status()
   notify(d and 'Shared parser: ' .. d or 'The shared parser is not running. It starts when roles are turned on.')
 end
 
----Stop the shared parser and free its memory. Roles go off in this Neovim;
----another Neovim with roles on starts the parser again on its next edit.
+---Stop the shared parser and free its memory. Roles go off in this Neovim's
+---buffers and stay off there; another Neovim with roles on, or a file opened
+---later with setup { roles = true }, starts the parser again.
 function M.stop()
   for _, buf in ipairs(vim.tbl_keys(bufs)) do
     M.disable(buf)
+    vim.b[buf].prose_roles = false
   end
   if (ask 'stop' or {}).bye then
     notify 'Stopped the shared parser.'

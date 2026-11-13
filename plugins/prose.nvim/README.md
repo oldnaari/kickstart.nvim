@@ -62,6 +62,7 @@ The defaults:
   path = true,      -- put bin/ on $PATH
   spell = {},       -- { local_list = ..., global_list = ... }, or false to skip
   vale = true,      -- configure vale_ls with vale/.vale.ini
+  roles = false,    -- true: colour grammar roles in every file of `filetypes` as it opens
 }
 ```
 
@@ -84,9 +85,10 @@ What to expect:
 
 - **Accuracy.** On the test sentences, English and Russian were right throughout, and Armenian in 19 of 20. Armenian uses Stanza's transformer-based package, because the default one got 15 of 20. Expect mistakes on long or unusual Armenian sentences.
 - **No subject is not a bug.** Imperatives ("Write a function") have no subject word, and neither does Armenian when the verb ending carries it ("Գնացի տուն"). Roles are grammatical, so "The bug was fixed by Ann" has *bug* as its subject.
-- **Cost.** It is off until you toggle it. The first toggle starts one shared parser (`bin/roles --daemon`) that every Neovim connects to, so three tabs cost one set of models, not three. It loads English at once and keeps it: about 0.9 GB. Russian and Armenian load the first time they appear (5-15 s) and unload after 30 minutes unused, which takes the memory back down to the English level; change that with `require('prose.roles').keep_alive`. The first run downloads the models: about 300 MB each for English and Russian, and about 1.6 GB for Armenian.
-- **It keeps running.** The parser outlives Neovim on purpose, so the next tab or Claude Code prompt colours English at once. It runs detached, writing only to `stdpath('state')/prose-roles.log`, so it never keeps an editor from closing. `:ProseRoles status` shows what it holds; `:ProseRoles stop` ends it and frees the memory. When `bin/roles` changes, the old parser hands over to a fresh one. While it runs, `uv cache clean` waits for it (or pass `--force`).
-- **Live.** After an edit, only the paragraphs whose text changed are parsed again, about 60 ms each.
+- **On or off.** It is off until you toggle it, unless `setup { roles = true }`, which turns it on in every markdown file as it opens (files only: LSP hover windows are markdown too, and stay plain). `<leader>pg` still turns it off in a buffer, and it stays off there when the file reloads.
+- **Cost.** The first buffer with roles on starts one shared parser (`bin/roles --daemon`) that every Neovim connects to, so three tabs cost one set of models, not three. It loads English at once and keeps it: about 0.9 GB. Russian and Armenian load the first time they appear (5-15 s) and unload after 30 minutes unused, which takes the memory back down to the English level; change that with `require('prose.roles').keep_alive`. The first run downloads the models: about 300 MB each for English and Russian, and about 1.6 GB for Armenian.
+- **It keeps running.** The parser outlives Neovim on purpose, so the next tab or Claude Code prompt colours English at once. It runs detached, writing only to `stdpath('state')/prose-roles.log`, so it never keeps an editor from closing. `:ProseRoles status` shows what it holds; `:ProseRoles stop` ends it and frees the memory, and turns roles off in that Neovim's buffers; with `roles = true`, the next file you open starts it again. When `bin/roles` changes, the old parser hands over to a fresh one. While it runs, `uv cache clean` waits for it (or pass `--force`).
+- **Only what you see.** It parses the paragraphs in view and a screen either side, and more as you scroll, so a 3,000-paragraph file costs no more than a short one. After an edit, only the paragraphs whose text changed are parsed again, about 60 ms each.
 
 `bin/roles --show < file.md` prints the roles in brackets, which is handy for checking a sentence. The groups `ProseSubject`, `ProseAction`, `ProseObject` and `ProseNoun` link to `Identifier`, `Statement` and `Type`, and a dotted underline, unless your theme defines them.
 

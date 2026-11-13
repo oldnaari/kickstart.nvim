@@ -55,6 +55,11 @@ function M.check()
         )
       )
     end
+    if require('prose').config.roles then
+      vim.health.ok 'On in every markdown file as it opens (`roles = true`); <leader>pg turns it off in a buffer'
+    else
+      vim.health.info 'Off until <leader>pg. `roles = true` in setup turns it on in every markdown file.'
+    end
     local shared = require('prose.roles').describe()
     if shared then
       vim.health.ok('Shared parser running: ' .. shared)

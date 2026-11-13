@@ -53,6 +53,10 @@ M.defaults = {
   -- Configure vale_ls with this plugin's Vale config. Enabling the server is
   -- still up to you (mason-lspconfig, or vim.lsp.enable 'vale_ls').
   vale = true,
+  -- Colour grammar roles (prose/roles.lua) in every file of `filetypes` as it
+  -- opens, not only after keys.roles. The first such file starts the shared
+  -- parser, which then holds about 0.9 GB until `:ProseRoles stop`.
+  roles = false,
 }
 
 M.config = vim.deepcopy(M.defaults)
@@ -94,6 +98,12 @@ local function attach(buf)
 
   if M.config.thesaurus then
     vim.bo[buf].thesaurusfunc = "v:lua.require'prose.alternatives'.complete"
+  end
+
+  -- Files only: LSP hover and completion docs are markdown too, in nofile
+  -- buffers, and parsing those would only cost.
+  if M.config.roles and vim.bo[buf].buftype == '' then
+    require('prose.roles').enable(buf, { auto = true })
   end
 end
 
@@ -179,7 +189,7 @@ function M.setup(opts)
 
   local group = vim.api.nvim_create_augroup('prose', { clear = true })
   vim.api.nvim_create_autocmd('FileType', {
-    desc = 'Prose keymaps and synonym completion',
+    desc = 'Prose keymaps, synonym completion and grammar roles',
     group = group,
     pattern = cfg.filetypes,
     callback = function(args)
