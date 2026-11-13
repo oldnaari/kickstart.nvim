@@ -5,7 +5,7 @@
 -- keymap: Insert mode, `/` search, and the character after r, f or t. It also
 -- works on a remote host over SSH, where the OS layout cannot be switched.
 --
--- `<leader>pk` opens a picker (see `layouts` in prose/init.lua). In Insert
+-- `<leader>k` opens a picker (see `layouts` in prose/init.lua). In Insert
 -- mode, the built-in <C-^> toggles between the last picked layout and English.
 --
 -- keymap/armenian-hmqwerty_utf-8.vim mirrors the macOS layout of the same name.

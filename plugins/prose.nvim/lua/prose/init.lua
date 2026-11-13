@@ -29,7 +29,7 @@ M.defaults = {
     review = '<leader>pr',
     synonym = '<leader>ps',
     fill = '<leader>pf',
-    layout = '<leader>pk', -- opens the keyboard layout picker
+    layout = '<leader>k', -- opens the keyboard layout picker
   },
   -- Insert-mode keyboard layouts (Vim's 'keymap'); see prose/layout.lua.
   -- `key` picks the layout straight from the picker, so avoid the picker's own
@@ -78,7 +78,7 @@ local function attach(buf)
 
   map(keys.layout, function()
     require('prose.layout').pick(M.config.layouts)
-  end, '[P]rose [K]eyboard layout')
+  end, '[K]eyboard layout')
 
   if M.config.thesaurus then
     vim.bo[buf].thesaurusfunc = "v:lua.require'prose.alternatives'.complete"

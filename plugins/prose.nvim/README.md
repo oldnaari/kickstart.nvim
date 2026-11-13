@@ -10,7 +10,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Synonyms  | What else means this?           | `<leader>ps`, `:Synonyms`, `<C-x><C-t>` | WordNet (`wn`)     |
 | Fill      | What else fits here?            | `<leader>pf`, `:Fill`                 | `uv`                 |
 | Highlight | Where are the asides?           | dims `(parentheticals)`, colours `"quotes"` | `mini.hipatterns` |
-| Keyboard  | Type Armenian or Russian?       | `<leader>pk` picker, `<C-^>` in Insert | `telescope.nvim` (optional) |
+| Keyboard  | Type Armenian or Russian?       | `<leader>k` picker, `<C-^>` in Insert | `telescope.nvim` (optional) |
 
 `:checkhealth prose` reports which of these tools are installed.
 
@@ -48,8 +48,8 @@ The defaults:
 ```lua
 {
   filetypes = { 'markdown' },
-  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', layout = '<leader>pk' }, -- each may be false
-  layouts = { -- in the <leader>pk picker, `key` picks at once; keymap = '' means English
+  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', layout = '<leader>k' }, -- each may be false
+  layouts = { -- in the <leader>k picker, `key` picks at once; keymap = '' means English
     { key = 'e', name = 'English', keymap = '' },
     { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
     { key = 'r', name = 'Russian', keymap = 'russian-jcukenmac' },
@@ -72,6 +72,6 @@ Two parts stay in your own config:
 
   The groups `MarkdownProseParen` and `MarkdownProseString` link to `Comment` and `String` unless your theme defines them.
 
-The keyboard layouts use Vim's `'keymap'`, so the OS layout stays on English and Normal-mode commands keep working. The `<leader>pk` picker opens in Normal mode: pick with j/k or the arrows and Enter, or press a layout's key. Without Telescope it falls back to `vim.ui.select`. The Armenian keymap's Option-layer letters (ը, շ, է, …) need a terminal that sends Option as Alt, such as iTerm2 with Option set to Esc+.
+The keyboard layouts use Vim's `'keymap'`, so the OS layout stays on English and Normal-mode commands keep working. The `<leader>k` picker opens in Normal mode: pick with j/k or the arrows and Enter, or press a layout's key. Without Telescope it falls back to `vim.ui.select`. The Armenian keymap's Option-layer letters (ը, շ, է, …) need a terminal that sends Option as Alt, such as iTerm2 with Option set to Esc+.
 
 The global spell list is personal data. It defaults to `spell/en.utf-8.add` in your config, not in this plugin.
