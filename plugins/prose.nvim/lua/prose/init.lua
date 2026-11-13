@@ -29,10 +29,12 @@ M.defaults = {
     review = '<leader>pr',
     synonym = '<leader>ps',
     fill = '<leader>pf',
-    layout = '<leader>pk', -- a prefix: each entry of `layouts` adds its own key
+    layout = '<leader>pk', -- opens the keyboard layout picker
   },
   -- Insert-mode keyboard layouts (Vim's 'keymap'); see prose/layout.lua.
-  -- keymap = '' is none: the keys type what the OS layout says.
+  -- `key` picks the layout straight from the picker, so avoid the picker's own
+  -- Normal-mode keys (j, k, i, q, G, ...). keymap = '' is none: the keys type
+  -- what the OS layout says.
   layouts = {
     { key = 'e', name = 'English', keymap = '' },
     { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
@@ -74,13 +76,9 @@ local function attach(buf)
     require('prose.alternatives').pick_fill()
   end, '[P]rose [F]ill (what fits here)')
 
-  if keys.layout then
-    for _, layout in ipairs(M.config.layouts) do
-      map(keys.layout .. layout.key, function()
-        require('prose.layout').set(layout)
-      end, layout.name)
-    end
-  end
+  map(keys.layout, function()
+    require('prose.layout').pick(M.config.layouts)
+  end, '[P]rose [K]eyboard layout')
 
   if M.config.thesaurus then
     vim.bo[buf].thesaurusfunc = "v:lua.require'prose.alternatives'.complete"
