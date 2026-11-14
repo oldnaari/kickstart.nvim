@@ -242,31 +242,6 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 local claude_prompt_pattern = 'claude-prompt*.md'
 local claude_group = vim.api.nvim_create_augroup('claude-prompt', { clear = true })
 
--- Compose prompts at a readable measure rather than full window width.
-vim.api.nvim_create_autocmd('BufWinEnter', {
-  desc = 'Open Claude prompt buffers in zen mode',
-  group = claude_group,
-  pattern = claude_prompt_pattern,
-  callback = function()
-    -- Deferred on purpose. Opening zen during the buffer-read sequence creates
-    -- the float but leaves focus in the original window, so the cursor renders
-    -- at the terminal's top-left and motions drive an invisible window.
-    vim.schedule(function()
-      local ok, zen = pcall(require, 'zen-mode')
-      if not ok then
-        return
-      end
-      -- BufWinEnter fires again whenever the buffer is shown in another window;
-      -- don't reopen over an existing session.
-      local shown, view = pcall(require, 'zen-mode.view')
-      if shown and view.is_open() then
-        return
-      end
-      zen.open()
-    end)
-  end,
-})
-
 -- Claude discards the temp file after submitting, so a prompt that took real
 -- effort to write leaves no trace. Keep a copy; behaviour is otherwise unchanged.
 vim.api.nvim_create_autocmd('BufWritePost', {
@@ -287,27 +262,6 @@ vim.api.nvim_create_autocmd('BufWritePost', {
       fh:write(entry)
       fh:close()
     end
-  end,
-})
-
--- zen-mode opens its float *over* the window that already holds the buffer, so
--- `:wq` closes only the float: zen collapses back to a normal window and Neovim
--- stays open, with the prompt unsubmitted until you quit a second time. Confirmed
--- interactively, and reproducible in bare `nvim -u NONE` with only zen-mode on the
--- runtimepath -- it is zen's behaviour, not anything to do with Claude.
---
--- Scoped to prompt buffers, so `:wq` keeps its ordinary meaning everywhere else and
--- no `:wqa` habit gets built.
-vim.api.nvim_create_autocmd('QuitPre', {
-  desc = 'Let `:wq` actually exit a zen-ed Claude prompt buffer',
-  group = claude_group,
-  pattern = claude_prompt_pattern,
-  callback = function()
-    -- `qa`, deliberately not `qa!`: if anything else holds unsaved changes it
-    -- should stop the quit, not lose them.
-    vim.schedule(function()
-      pcall(vim.cmd, 'qa')
-    end)
   end,
 })
 
@@ -348,13 +302,11 @@ end
 --
 -- So pressing `<leader>o` is what pulls the answer in. Until then this changes
 -- nothing about `ctrl+g`. Once opened, it is a listed buffer like any other, so
--- `<leader><leader>` swaps between answer and compose inside the same zen float
--- (changing the buffer in a window does not close zen; entering another does).
+-- `<leader><leader>` swaps between answer and compose in the same window.
 -- Add the answer to the buffer list without showing it, so `<leader><leader>`
 -- (Telescope buffers) lists it straight away. Deliberately not a split, tab or
 -- float: a second *window* keeps Neovim alive after `:wq`, and Claude waits for the
--- editor process to exit before submitting. One window, two buffers -- changing the
--- buffer inside the zen float does not close zen, only entering another window does.
+-- editor process to exit before submitting. One window, two buffers.
 vim.api.nvim_create_autocmd('BufWinEnter', {
   desc = "Offer Claude's last answer as a buffer while composing",
   group = claude_group,
