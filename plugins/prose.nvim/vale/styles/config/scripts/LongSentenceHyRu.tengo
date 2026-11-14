@@ -1,13 +1,16 @@
-// Prompt.LongSentence for Armenian.
+// Prompt.LongSentence for Armenian and Russian.
 //
 // Prompt.LongSentence cannot do it. Vale ends a sentence only at . ! ? and …,
 // not at the Armenian full stop ։ (U+0589) or the ASCII colon often typed in
 // its place, so a whole Armenian paragraph reads as one sentence. And its word
-// token uses \w, which is ASCII-only in Vale, so Armenian words count as zero.
+// token uses \w, which is ASCII-only in Vale, so Armenian and Cyrillic words
+// count as zero: no Russian sentence was ever long enough to flag.
 // This script splits each block itself and counts words with \p{L}.
 //
-// Sentences with no Armenian letter are skipped: Prompt.LongSentence covers
-// English. A long sentence mixing both can trip both rules.
+// Sentences with no Armenian or Cyrillic letter are skipped:
+// Prompt.LongSentence covers English. A long sentence mixing scripts can trip
+// both rules. The colon also ends a Russian sentence here, which can only make
+// a sentence shorter, so it never adds a flag.
 text := import("text")
 
 max_words := 25
@@ -17,7 +20,7 @@ sentences := text.re_find(`[^\s։:.!?…][^։:.!?…]*[։:.!?…]*`, scope, -1)
 if sentences != undefined {
   for s in sentences {
     m := s[0]
-    if !text.re_match(`\p{Armenian}`, m.text) {
+    if !text.re_match(`[\p{Armenian}\p{Cyrillic}]`, m.text) {
       continue
     }
     words := text.re_find(`[\p{L}\p{N}][\p{L}\p{M}\p{N}'’-]*`, m.text, -1)

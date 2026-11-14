@@ -11,6 +11,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Fill      | What else fits here?            | `<leader>pf`, `:Fill`                 | `uv`                 |
 | Highlight | Where are the asides?           | dims `(parentheticals)`, colours `"quotes"` | `mini.hipatterns` |
 | Roles     | Who does what to whom?          | `<leader>pg`, `:ProseRoles [status\|stop]` | `uv`            |
+| Patterns  | What could be clearer?          | `<leader>pp`, `:ProsePatterns`, `]d` / `[d` | `uv`; WordNet (optional) |
 | Keyboard  | Type Armenian or Russian?       | `<leader>k` picker, `<C-^>` in Insert | `telescope.nvim` (optional) |
 | Emoji     | Which emoji is that?            | `<leader>pe`, `:Emoji`                | `telescope.nvim`, `telescope-symbols.nvim` |
 
@@ -24,12 +25,14 @@ lua/prose/review.lua        claude -p review into quickfix
 lua/prose/alternatives.lua  synonyms and fill
 lua/prose/spell.lua         the two word lists, plus compiling spell/*.add
 lua/prose/highlight.lua     mini.hipatterns highlighters
-lua/prose/roles.lua         subject/action/object colouring from bin/roles
+lua/prose/roles.lua         the shared parser's client; subject/action/object colouring
+lua/prose/patterns.lua      bad-pattern flags as diagnostics, from the same parse
 lua/prose/layout.lua        keyboard layout switching
 lua/prose/emoji.lua         emoji picker (Telescope's symbols picker)
 lua/prose/health.lua        :checkhealth prose
 keymap/                     Armenian keymap matching the macOS HM QWERTY layout
 bin/syn, bin/fill, bin/roles  command-line tools; setup() puts bin/ on $PATH
+patterns/                   the pattern checks bin/roles runs, and their word lists
 vale/                       Vale config and the Prompt style
 ```
 
@@ -52,7 +55,7 @@ The defaults:
 ```lua
 {
   filetypes = { 'markdown' },
-  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', layout = '<leader>k', emoji = '<leader>pe' }, -- each may be false
+  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', patterns = '<leader>pp', layout = '<leader>k', emoji = '<leader>pe' }, -- each may be false
   layouts = { -- in the <leader>k picker, `key` picks at once; keymap = '' means English
     { key = 'e', name = 'English', keymap = '' },
     { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
@@ -63,6 +66,7 @@ The defaults:
   spell = {},       -- { local_list = ..., global_list = ... }, or false to skip
   vale = true,      -- configure vale_ls with vale/.vale.ini; its flags arrive as Hints
   roles = false,    -- true: colour grammar roles in every file of `filetypes` as it opens
+  patterns = false, -- true: flag bad patterns in every such file; or { off = { 'Repetition' } }
 }
 ```
 
@@ -89,6 +93,46 @@ Three parts stay in your own config:
     },
   }
   ```
+
+## Patterns
+
+`<leader>pp` flags what in a draft could be clearer: a subject far from its verb, a passive, "make a decision" for "decide", a chain of genitives, a dangling modifier. It does not say what to write instead. Each flag is a dim underline (a Hint, never an error), `]d` and `[d` walk through them, and the message opens as you land on one, ending with the check's name, such as `[Prose.Passive]`.
+
+The checks ride on the parser behind the role colours, so they cover English, Russian and Armenian, and turning on both costs one parse. Unlike the colours, they cover the whole file, so `]d` finds every flag: what is on screen is parsed first, the rest after it. Files over 2,000 lines (`require('prose.patterns').whole_file_lines`) are checked in view only.
+
+| Check | What it flags | Trust (en / ru / hy) |
+| :---- | :------------ | :------------------- |
+| SubjectGap | 8+ words between a subject and its verb (Gopen & Swan) | medium / medium / low |
+| ObjectGap | 6+ words between a verb and its object | medium / medium / low |
+| LongOpener | 13+ words before the main clause starts | medium / medium / low |
+| Nesting | clauses embedded in the middle of others, or nested 4 deep | medium / medium / low |
+| Passive | each passive; notes the actor if it is named | high / medium / medium |
+| Nominalization | an action noun with its object attached: "the implementation of the feature", «осуществление проверки» | medium / medium / low |
+| LightVerb | a light verb with an action noun: "make a decision", «оказать помощь», «որոշում կայացնել» | medium / high / medium |
+| EmptyOpener | "There are…", "It is important to note that…", «Следует отметить, что…» | high / high / medium |
+| Wordy, Filler, Cliche, Hedge, Intensifier | phrases from the word lists in `patterns/lexicon/` | high / high / medium |
+| NounStack | 3+ nouns stacked ("model evaluation pipeline config"), or a chain of 3+ genitives or "of" phrases | medium / high / medium |
+| Negation | a double negative: "not uncommon", «не невозможно» | medium / low / low |
+| Adverb | a manner adverb on a verb: "quickly", «быстро», «արագորեն» | high / high / medium |
+| Dangling | an opening participle or converb whose implied doer is not the main subject | low / medium / low |
+| Parallel | list items, or joined verbs, that open in different forms | high for lists |
+| Acronym | an all-caps word used before it is defined (whole file only) | medium |
+| Repetition | the same noun, adjective or adverb twice within 10 words | high, but often fine |
+| Cohesion | a sentence whose subject the two before it never mention (old before new) | low |
+| Monotony, RepeatedOpening | 4 sentences of the same length; 3 opening with the same word | high |
+| ParagraphLength, Readability | over 6 sentences or 150 words; Flesch reading ease under 30 (en, ru) | high (as numbers) |
+| Abstract | 45%+ of a paragraph's words rated abstract (en only) | medium |
+
+"Trust" is how often a flag is a real instance of the pattern, not whether it needs changing: many passives and repetitions are right as they are. The ratings come from Stanza's accuracy per language and from checking the rules on sample sentences; Armenian parses least reliably. On 400 paragraphs of the prompt archive, Repetition flagged 38% of paragraphs and Passive 27%; every other check under 20%, most under 5%. Hide the ones you do not want:
+
+```lua
+opts = { patterns = { off = { 'Repetition', 'Cohesion' } } }
+```
+
+- **Word lists.** `patterns/lexicon/en.txt`, `ru.txt` and `hy.txt`, one entry per line under a `[section]`. Entries match the word as written or its dictionary form, so «являться» finds «является». Edits apply from the next paragraph parsed; no restart. The Armenian lists are a short start: there is no published list to take them from.
+- **English extras, both optional.** WordNet (`brew install wordnet`) confirms English nominalizations ("decision" comes from "decide", "nation" from no verb). The Abstract check needs the concreteness ratings of Brysbaert, Warriner & Kuperman (2014); the first English paragraph downloads them once, 2 MB from the publisher, into `~/Library/Caches/prose.nvim` (`~/.cache/prose.nvim` on Linux). Without them that check is skipped.
+- **Checking a rule.** `bin/roles --show --flags < file.md` lists every flag with its text and message.
+- **Not here.** Sentence length stays a Vale rule (`Prompt.LongSentence`, and `Prompt.LongSentenceHyRu` for Armenian and Russian), and so does the vague "This is…" opener.
 
 ## Roles
 

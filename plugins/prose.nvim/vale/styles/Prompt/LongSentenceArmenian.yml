@@ -1,8 +1,0 @@
-extends: script
-message: "Long Armenian sentence (more than 25 words). The reader holds the clause open too long; split it, or move the main verb closer to the subject. (Williams, 'Style: Lessons in Clarity and Grace'; plain-language guidance)"
-link: https://www.plainlanguage.gov/guidelines/
-level: warning
-# `text` hands the script each heading, paragraph, list item and blockquote on
-# its own and skips code blocks. `paragraph` would miss list items.
-scope: text
-script: LongSentenceArmenian.tengo

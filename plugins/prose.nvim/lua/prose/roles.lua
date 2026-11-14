@@ -32,11 +32,22 @@
 -- Roles are grammatical: in "The bug was fixed by Ann" the subject is "bug".
 -- Imperatives have no subject word, and neither do Armenian sentences whose
 -- verb ending carries it ("Գնացի տուն"), so those show an action alone.
+--
+-- ONE PARSE, TWO FEATURES
+--
+-- The same parse also carries the bad-pattern flags (prose/patterns.lua), so a
+-- buffer has two switches: `roles` (the colours) and `flags` (the diagnostics).
+-- Either one keeps the buffer's parse alive. Colours are painted in view only;
+-- flags want the whole file, so ]d finds them all, and with flags on the whole
+-- file is parsed, the view first (see M.inflight).
 
 local M = {}
 
 M.debounce_ms = 300
 M.batch = 16 -- paragraphs per request; bin/roles parses a batch in bulk
+-- Batches in flight per buffer. A whole file is sent this many at a time, so
+-- the paragraph you just edited never waits behind the rest of the file.
+M.inflight = 4
 -- Parse this many window heights above and below what is shown, so text
 -- scrolled into view is usually coloured already.
 M.margin = 1
@@ -61,10 +72,18 @@ M.groups = {
 local ns = vim.api.nvim_create_namespace 'prose-roles'
 local group = vim.api.nvim_create_augroup('prose-roles', { clear = true })
 
+---@class prose.roles.Result
+---@field spans table[] {start, end, role} in bytes
+---@field flags table[] {start, end, code, message} in bytes
+---@field lead table? {start, end, form}: how the paragraph's first word reads
+---@field acronyms table[] {start, end, word, defined}
+
 ---@class prose.roles.Buf
----@field cache table<string, table> paragraph text -> spans, for the paragraphs now in the buffer
+---@field cache table<string, prose.roles.Result> paragraph text -> its parse, for the paragraphs now in the buffer
 ---@field pending table<string, true> paragraph texts sent and not yet answered
 ---@field timer uv.uv_timer_t
+---@field roles boolean colours on
+---@field flags boolean pattern flags on
 
 local bufs = {} ---@type table<integer, prose.roles.Buf>
 local requests = {} ---@type table<integer, {buf: integer, key: string}>
@@ -90,8 +109,10 @@ local LINKS = { inline_link = true, full_reference_link = true, collapsed_refere
 ---Prose paragraphs of `buf` that touch any of `ranges`, with inline markup
 ---masked. Only those, because a long file costs: all 3,300 paragraphs of a
 ---7,900-line file take 80 ms, which would be felt on every scroll and edit.
+---`list` is set on the first paragraph of a list item: the id of its list, so
+---the items of one list can be compared.
 ---@param ranges integer[][] 0-based {first, last} rows
----@return {row: integer, text: string, starts: integer[], nospan: table<integer, integer[][]>}[]
+---@return {row: integer, text: string, starts: integer[], nospan: table<integer, integer[][]>, list: string?}[]
 local function paragraphs(buf, ranges)
   local ok, parser = pcall(vim.treesitter.get_parser, buf, 'markdown')
   if not ok or not parser or #ranges == 0 then
@@ -209,8 +230,19 @@ local function paragraphs(buf, ranges)
           pos = pos + #l + 1
         end
         local text = table.concat(parts, '\n')
+        local list ---@type string?
+        local item = node:parent()
+        if item and item:type() == 'list_item' then
+          for child in item:iter_children() do
+            if child:type() == 'paragraph' then
+              local owner = item:parent()
+              list = child:id() == node:id() and owner and owner:id() or nil
+              break
+            end
+          end
+        end
         if text:find '%S' then
-          out[#out + 1] = { row = sr, text = text, starts = starts, nospan = nospan }
+          out[#out + 1] = { row = sr, text = text, starts = starts, nospan = nospan, list = list }
         end
       end
     end
@@ -235,6 +267,7 @@ local function position(p, offset)
   end
   return p.row + k - 1, offset - p.starts[k]
 end
+M.position = position
 
 local function blocked(p, srow, scol, erow, ecol)
   for r = srow, erow do
@@ -294,7 +327,12 @@ local function on_result(msg)
   end
   st.pending[req.key] = nil
   -- An error caches as no spans, so the paragraph is not re-sent in a loop.
-  st.cache[req.key] = msg.spans or {}
+  st.cache[req.key] = {
+    spans = msg.spans or {},
+    flags = msg.flags or {},
+    lead = msg.lead,
+    acronyms = msg.acronyms or {},
+  }
   refresh(req.buf, 30) -- results arrive in bursts; repaint once per burst
 end
 
@@ -337,7 +375,7 @@ local function on_eof()
     end, drops)
     table.insert(drops, now)
     if #drops >= 3 then
-      fail 'The shared parser keeps stopping. Roles stay off until you turn them on again.'
+      fail 'The shared parser keeps stopping. Roles and pattern flags stay off until you turn one on again.'
       return
     end
     notify('The shared parser stopped unexpectedly. It starts again with the next paragraph to parse.', vim.log.levels.WARN)
@@ -367,7 +405,8 @@ local function listen(pipe)
     partial = partial:match '[^\n]*$'
     vim.schedule(function()
       for _, line in ipairs(lines) do
-        local ok, msg = pcall(vim.json.decode, line)
+        -- luanil: a JSON null (no lead) is nil, not vim.NIL.
+        local ok, msg = pcall(vim.json.decode, line, { luanil = { object = true, array = true } })
         if conn == pipe and ok and type(msg) == 'table' then
           if msg.notice then
             notify(msg.notice)
@@ -506,19 +545,29 @@ local function ask(cmd, timeout)
   return ok and type(reply) == 'table' and reply or nil
 end
 
----Send the paragraphs the cache lacks, nearest the cursor first.
+---Send the paragraphs the cache lacks, nearest the cursor first, at most
+---M.inflight batches at a time: each answer repaints, which sends the next.
 local function request(buf, missing)
   if #missing == 0 or failed then
     return
   end
   local st = bufs[buf]
+  local waiting = 0
+  for _ in pairs(st.pending) do
+    waiting = waiting + 1
+  end
+  local room = M.inflight * M.batch - waiting
+  if room <= 0 then
+    return
+  end
   local cursor = vim.api.nvim_get_current_buf() == buf and vim.api.nvim_win_get_cursor(0)[1] - 1 or 0
   table.sort(missing, function(a, b)
     return math.abs(a.row - cursor) < math.abs(b.row - cursor)
   end)
-  for i = 1, #missing, M.batch do
+  local n = math.min(#missing, room)
+  for i = 1, n, M.batch do
     local items = {}
-    for j = i, math.min(i + M.batch - 1, #missing) do
+    for j = i, math.min(i + M.batch - 1, n) do
       next_id = next_id + 1
       requests[next_id] = { buf = buf, key = missing[j].text }
       st.pending[missing[j].text] = true
@@ -551,12 +600,27 @@ local function shown(buf)
   return ranges
 end
 
+---Does any paragraph row of `p` fall in `ranges`?
+local function visible(p, ranges)
+  local last = p.row + #p.starts - 1
+  for _, r in ipairs(ranges) do
+    if p.row <= r[2] and last >= r[1] then
+      return true
+    end
+  end
+  return false
+end
+
 local function paint(buf)
   local st = bufs[buf]
   if not st or not vim.api.nvim_buf_is_valid(buf) then
     return
   end
-  local paras = paragraphs(buf, shown(buf))
+  local view = shown(buf)
+  local lines = vim.api.nvim_buf_line_count(buf)
+  -- Flags cover the whole file, unless it is too long to scan on every edit.
+  local whole = st.flags and lines <= require('prose.patterns').whole_file_lines
+  local paras = paragraphs(buf, whole and { { 0, lines - 1 } } or view)
   local cache, missing, seen = {}, {}, {}
   for _, p in ipairs(paras) do
     if st.cache[p.text] then
@@ -580,6 +644,19 @@ local function paint(buf)
   end
   st.cache = cache
 
+  if st.roles then
+    M.paint_roles(buf, whole and vim.tbl_filter(function(p)
+      return visible(p, view)
+    end, paras) or paras, cache)
+  end
+  if st.flags then
+    require('prose.patterns').publish(buf, paras, cache, whole)
+  end
+  request(buf, missing)
+end
+
+---Colour the roles of `paras`, the ones in view, and clear the rest.
+function M.paint_roles(buf, paras, cache)
   -- Clear everywhere except paragraphs still waiting on the parser: their old
   -- marks have moved with the text as it was edited, and are a better guess
   -- than nothing until the new parse arrives.
@@ -593,7 +670,7 @@ local function paint(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns, row, -1)
 
   for _, p in ipairs(paras) do
-    for _, span in ipairs(cache[p.text] or {}) do
+    for _, span in ipairs(cache[p.text] and cache[p.text].spans or {}) do
       local s, e, role = span[1], span[2], span[3]
       local srow, scol = position(p, s)
       local erow, ecol = position(p, e)
@@ -607,7 +684,6 @@ local function paint(buf)
       end
     end
   end
-  request(buf, missing)
 end
 
 ---Repaint `buf` after `delay` ms, restarting the wait on every call.
@@ -642,15 +718,27 @@ vim.api.nvim_create_autocmd({ 'WinScrolled', 'WinResized' }, {
 })
 
 -- --- on and off --------------------------------------------------------------
+--
+-- Two features share a buffer's parse: 'roles' (the colours) and 'flags' (the
+-- pattern diagnostics, prose/patterns.lua). Each is turned on and off on its
+-- own, and each remembers being turned off by hand in a buffer variable, so
+-- setup's "on in every file" leaves that buffer alone when the file reloads.
 
-function M.enabled(buf)
-  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
-  return bufs[buf] ~= nil
+local OFF_BY_HAND = { roles = 'prose_roles', flags = 'prose_patterns' }
+
+local function resolve(buf)
+  return (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
 end
 
----How many paragraphs of `buf` are waiting on the parser: 0 once all are coloured.
+---@param feature? 'roles'|'flags' default 'roles'
+function M.enabled(buf, feature)
+  local st = bufs[resolve(buf)]
+  return st ~= nil and st[feature or 'roles'] == true
+end
+
+---How many paragraphs of `buf` are waiting on the parser: 0 once all are parsed.
 function M.pending(buf)
-  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+  buf = resolve(buf)
   local n = 0
   for _ in pairs(bufs[buf] and bufs[buf].pending or {}) do
     n = n + 1
@@ -658,8 +746,8 @@ function M.pending(buf)
   return n
 end
 
-function M.disable(buf)
-  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+---Forget `buf` entirely: both features off, its parse and timer gone.
+local function drop(buf)
   local st = bufs[buf]
   if not st then
     return
@@ -671,59 +759,110 @@ function M.disable(buf)
   if vim.api.nvim_buf_is_valid(buf) then
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   end
+  if st.flags then
+    require('prose.patterns').clear(buf)
+  end
   if next(bufs) == nil then
     close() -- the shared parser stays, for the next buffer or Neovim
   end
 end
 
----@param opts? {auto?: boolean} auto: turned on by setup { roles = true }, not
----by hand. Silent, skips buffers where roles were turned off by hand, and does
----not retry a parser that failed.
-function M.enable(buf, opts)
-  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
-  local auto = opts and opts.auto
-  if bufs[buf] or (auto and vim.b[buf].prose_roles == false) then
+---Turn `feature` off in `buf`. The parse goes once neither feature is on.
+---@param feature 'roles'|'flags'
+function M.detach(buf, feature)
+  buf = resolve(buf)
+  local st = bufs[buf]
+  if not st or not st[feature] then
     return
   end
-  bufs[buf] = { cache = {}, pending = {}, timer = assert(vim.uv.new_timer()) }
-  vim.b[buf].prose_roles = nil
-  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'InsertLeave' }, {
-    group = group,
-    buffer = buf,
-    callback = function()
-      refresh(buf)
-    end,
-  })
-  vim.api.nvim_create_autocmd('BufWinEnter', {
-    group = group,
-    buffer = buf,
-    callback = function()
-      refresh(buf, 0)
-    end,
-  })
-  vim.api.nvim_create_autocmd('BufWipeout', {
-    group = group,
-    buffer = buf,
-    callback = function()
-      M.disable(buf)
-    end,
-  })
+  if not (st.roles and st.flags) then
+    drop(buf)
+    return
+  end
+  st[feature] = false
+  if feature == 'roles' and vim.api.nvim_buf_is_valid(buf) then
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  elseif feature == 'flags' then
+    require('prose.patterns').clear(buf)
+    paint(buf) -- back to parsing the view only
+  end
+end
+
+---Turn `feature` on in `buf`.
+---@param feature 'roles'|'flags'
+---@param opts? {auto?: boolean} auto: turned on by setup, not by hand. Skips
+---buffers where the feature was turned off by hand, and does not retry a
+---parser that failed.
+---@return boolean? on true if it was turned on now
+function M.attach(buf, feature, opts)
+  buf = resolve(buf)
+  local auto = opts and opts.auto
+  local st = bufs[buf]
+  if (st and st[feature]) or (auto and vim.b[buf][OFF_BY_HAND[feature]] == false) then
+    return
+  end
+  if not st then
+    st = { cache = {}, pending = {}, timer = assert(vim.uv.new_timer()), roles = false, flags = false }
+    bufs[buf] = st
+    vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'InsertLeave' }, {
+      group = group,
+      buffer = buf,
+      callback = function()
+        refresh(buf)
+      end,
+    })
+    vim.api.nvim_create_autocmd('BufWinEnter', {
+      group = group,
+      buffer = buf,
+      callback = function()
+        refresh(buf, 0)
+      end,
+    })
+    vim.api.nvim_create_autocmd('BufWipeout', {
+      group = group,
+      buffer = buf,
+      callback = function()
+        drop(buf)
+      end,
+    })
+  end
+  st[feature] = true
+  vim.b[buf][OFF_BY_HAND[feature]] = nil
   if not auto then
-    failed, drops = false, {} -- turning roles on is the way to try again
-    notify 'On'
+    failed, drops = false, {} -- turning a feature on is the way to try again
   end
   paint(buf)
+  return true
+end
+
+---Turn `feature` on or off in `buf` by hand; off stays off when the file reloads.
+---@return boolean on
+function M.flip(buf, feature)
+  buf = resolve(buf)
+  if M.enabled(buf, feature) then
+    M.detach(buf, feature)
+    vim.b[buf][OFF_BY_HAND[feature]] = false
+    return false
+  end
+  M.attach(buf, feature)
+  return true
+end
+
+-- The colours, as before the flags existed.
+
+function M.disable(buf)
+  M.detach(buf, 'roles')
+end
+
+---@param opts? {auto?: boolean} see M.attach
+function M.enable(buf, opts)
+  if M.attach(buf, 'roles', opts) and not (opts and opts.auto) then
+    notify 'On'
+  end
 end
 
 function M.toggle(buf)
-  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
-  if bufs[buf] then
-    M.disable(buf)
-    vim.b[buf].prose_roles = false -- stays off when the file is reloaded
-    notify 'Off'
-  else
-    M.enable(buf)
-  end
+  notify(M.flip(buf, 'roles') and 'On' or 'Off')
 end
 
 local LANGS = { en = 'English', ru = 'Russian', hy = 'Armenian' }
@@ -760,16 +899,22 @@ end
 
 function M.status()
   local d = M.describe()
-  notify(d and 'Shared parser: ' .. d or 'The shared parser is not running. It starts when roles are turned on.')
+  notify(d and 'Shared parser: ' .. d or 'The shared parser is not running. It starts when roles or pattern flags are turned on.')
 end
 
----Stop the shared parser and free its memory. Roles go off in this Neovim's
----buffers and stay off there; another Neovim with roles on, or a file opened
----later with setup { roles = true }, starts the parser again.
+---Stop the shared parser and free its memory. Roles and pattern flags go off in
+---this Neovim's buffers and stay off there; another Neovim with either on, or a
+---file opened later with setup { roles = true } or { patterns = true }, starts
+---the parser again.
 function M.stop()
   for _, buf in ipairs(vim.tbl_keys(bufs)) do
-    M.disable(buf)
-    vim.b[buf].prose_roles = false
+    local st = bufs[buf]
+    for feature, var in pairs(OFF_BY_HAND) do
+      if st[feature] then
+        vim.b[buf][var] = false
+      end
+    end
+    drop(buf)
   end
   if (ask 'stop' or {}).bye then
     notify 'Stopped the shared parser.'

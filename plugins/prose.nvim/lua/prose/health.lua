@@ -70,6 +70,35 @@ function M.check()
     vim.health.warn('`uv` not found: :ProseRoles and <leader>pg are unavailable', { 'Install it with: ' .. alt.install_hint 'uv' })
   end
 
+  vim.health.start 'Pattern flags (prose/patterns.lua)'
+
+  if vim.fn.executable 'uv' == 1 then
+    local cfg = require('prose').config.patterns
+    if cfg then
+      vim.health.ok 'On in every markdown file as it opens (`patterns = true`); <leader>pp turns it off in a buffer'
+    else
+      vim.health.info 'Off until <leader>pp. `patterns = true` in setup turns it on in every markdown file.'
+    end
+    local off = require('prose.patterns').off
+    if #off > 0 then
+      vim.health.info('Hidden checks: ' .. table.concat(off, ', '))
+    end
+    -- Both optional, both read by bin/roles (patterns/prose_patterns.py).
+    if vim.fn.executable 'wn' == 1 then
+      vim.health.ok 'WordNet found: English nominalizations are confirmed against it'
+    else
+      vim.health.info('WordNet not found: English nominalizations fall back to a suffix list, which flags more wrongly', { 'Install it with: ' .. alt.install_hint 'wn' })
+    end
+    local ratings = (vim.fn.has 'mac' == 1 and vim.fn.expand '~/Library/Caches' or (vim.env.XDG_CACHE_HOME or vim.fn.expand '~/.cache')) .. '/prose.nvim/concreteness.tsv'
+    if vim.fn.filereadable(ratings) == 1 then
+      vim.health.ok 'Concreteness ratings cached: the Abstract check works (English)'
+    else
+      vim.health.info 'Concreteness ratings not downloaded yet. The first English paragraph fetches them (2 MB, from the publisher), or the Abstract check stays off.'
+    end
+  else
+    vim.health.warn('`uv` not found: the pattern flags and <leader>pp are unavailable', { 'Install it with: ' .. alt.install_hint 'uv' })
+  end
+
   vim.health.start 'Emoji (prose/emoji.lua)'
 
   if not pcall(require, 'telescope') then

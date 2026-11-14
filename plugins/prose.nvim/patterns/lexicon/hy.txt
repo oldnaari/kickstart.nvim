@@ -1,0 +1,69 @@
+# Armenian word lists for prose.nvim's pattern flags (patterns/prose_patterns.py).
+#
+# A starting point only: no published style lists like the English and Russian
+# ones exist for Armenian, so these are short and meant to grow. Add what you
+# notice in your own writing.
+#
+# One entry per line under a [section]. Words match as written or by their
+# dictionary form (verbs in -ել/-ալ), so "հանդիսանալ" finds "հանդիսանում է".
+# Punctuation is ignored; ։ and : end sentences. A word may carry a part of
+# speech: "շատ/ADV" matches only the adverb, not "շատ" as "many".
+# Edits apply from the next paragraph parsed.
+
+[opener]
+# Matched at the start of a sentence only.
+հարկ է նշել որ
+պետք է նշել որ
+կարևոր է նշել որ
+անհրաժեշտ է նշել որ
+ինչպես հայտնի է
+գաղտնիք չէ որ
+
+[wordy]
+այն պատճառով որ
+ներկա պահին
+տվյալ պահին
+տվյալ դեպքում
+այն դեպքում երբ
+
+[cliche]
+
+[filler]
+հանդիսանալ
+փաստորեն
+ըստ էության
+իրականում
+
+[hedge]
+թերևս
+հավանաբար
+կարծես
+երևի
+որոշ չափով
+ինչ-որ առումով
+
+[intensifier]
+շատ/ADV
+խիստ/ADV
+չափազանց
+անչափ
+բացարձակապես
+իսկապես
+անկասկած
+իհարկե
+ակնհայտորեն
+միանշանակ
+
+[light-verb]
+# Verbs that, with an action noun as their object, spread one action over two
+# words: "որոշում կայացնել", "վերլուծություն իրականացնել".
+կատարել
+իրականացնել
+անցկացնել
+կայացնել
+ցուցաբերել
+ունենալ
+իրագործել
+
+[acronym-ok]
+ՀՀ ԵՄ ՄԱԿ ԱՄՆ ՌԴ ԵՊՀ

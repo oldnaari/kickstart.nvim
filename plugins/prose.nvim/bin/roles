@@ -20,15 +20,19 @@ A dependency parser (Stanza) reads each paragraph and labels its words. English,
 Russian and Armenian are told apart by their letters, per paragraph.
 
     roles --show < draft.md      # read text, print it with [brackets]S
+    roles --show --flags < x.md  # the same, listing the pattern flags
     roles --daemon SOCKET        # the shared parser that every Neovim uses
     roles                        # the same JSON lines on stdin and stdout
 
 The JSON protocol: each input line is a paragraph, {"id": ..., "text": "..."},
 or a list of them. A list is parsed in bulk, about five times faster. Each
 paragraph gets its own output line, {"id": ..., "lang": "en", "spans": [[start,
-end, role], ...]} or {"id": ..., "error": "..."}, where start and end are UTF-8
-byte offsets into text and role is one of subject, action, object, noun. A
-paragraph with no letters gets lang null and no spans.
+end, role], ...], "flags": [[start, end, code, message], ...], "lead": [start,
+end, form] or null, "acronyms": [[start, end, word, defined], ...]} or {"id":
+..., "error": "..."}. start and end are UTF-8 byte offsets into text; role is
+one of subject, action, object, noun. Flags are the bad-pattern checks of
+patterns/prose_patterns.py, which also explains lead and acronyms. A paragraph
+with no letters gets lang null and nothing else.
 
 The shared parser speaks it over a Unix socket, to any number of Neovims at
 once, taking their requests in turn. It also answers {"cmd": "status"} and
@@ -66,6 +70,11 @@ import time
 import unicodedata
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+
+# The pattern checks live beside the word lists they read, in ../patterns.
+PATTERNS = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "patterns")
+sys.path.insert(0, PATTERNS)
+import prose_patterns  # noqa: E402
 
 # Stanza adds mwt (multi-word tokens, "don't" = do + n't) where a language has it.
 PROCESSORS = "tokenize,pos,lemma,depparse"
@@ -175,6 +184,7 @@ class Parsers:
         self.notice = notice or (lambda msg: log(f"roles: {msg}"))
         self.pipelines = {}
         self.used = {}  # lang -> time.monotonic() when its last use ended
+        self.reported = set()  # pattern-check errors already logged
 
     def get(self, lang):
         if lang not in self.pipelines:
@@ -378,14 +388,17 @@ def analyse(parsers, paras):
     jobs = {}  # lang -> [(paragraph index, run start, run text)]
     left = {}  # paragraph index -> runs not yet parsed
     found = {}  # paragraph index -> character spans so far
+    flags = {}  # paragraph index -> character flags so far
+    acronyms = {}
+    leads = {}  # paragraph index -> (run start, lead): the first run's wins
     errors = {}
     main = {}
     for i, p in enumerate(paras):
         rs = runs(p["text"])
         if not rs:
-            yield i, {"id": p.get("id"), "lang": None, "spans": []}
+            yield i, {"id": p.get("id"), "lang": None, "spans": [], "flags": [], "lead": None, "acronyms": []}
             continue
-        left[i], found[i] = len(rs), []
+        left[i], found[i], flags[i], acronyms[i] = len(rs), [], [], []
         main[i] = max(rs, key=lambda r: r[2] - r[1])[0]
         for lang, s, e in rs:
             jobs.setdefault(lang, []).append((i, s, p["text"][s:e]))
@@ -395,6 +408,12 @@ def analyse(parsers, paras):
             docs = parsers.parse(lang, [t for _, _, t in items])
             for (i, s, t), doc in zip(items, docs):
                 found[i].extend((a + s, b + s, role) for a, b, role in char_spans(doc, t, lang))
+                res = patterns(parsers, doc, t, lang)
+                flags[i].extend((a + s, b + s, *rest) for a, b, *rest in res["flags"])
+                acronyms[i].extend((a + s, b + s, *rest) for a, b, *rest in res["acronyms"])
+                if res["lead"] and (i not in leads or s < leads[i][0]):
+                    a, b, form = res["lead"]
+                    leads[i] = (s, (a + s, b + s, form))
         except Exception as e:  # report and keep serving: one bad batch is not fatal
             for i, _, _ in items:
                 errors[i] = f"{type(e).__name__}: {e}"
@@ -405,7 +424,30 @@ def analyse(parsers, paras):
                 if i in errors:
                     yield i, {"id": p.get("id"), "error": errors[i]}
                 else:
-                    yield i, {"id": p.get("id"), "lang": main[i], "spans": to_bytes(p["text"], found[i])}
+                    text = p["text"]
+                    yield i, {
+                        "id": p.get("id"),
+                        "lang": main[i],
+                        "spans": to_bytes(text, found[i]),
+                        "flags": to_bytes(text, flags[i]),
+                        "lead": to_bytes(text, [leads[i][1]])[0] if i in leads else None,
+                        "acronyms": to_bytes(text, acronyms[i]),
+                    }
+
+
+def patterns(parsers, doc, text, lang):
+    """The pattern checks for one parsed run. A bug in a check must not cost
+    the roles, so it is logged once and the run gets no flags."""
+    try:
+        return prose_patterns.detect(doc, text, lang, parsers.notice)
+    except Exception as e:
+        msg = f"pattern checks failed: {type(e).__name__}: {e}"
+        if msg not in parsers.reported:
+            parsers.reported.add(msg)
+            import traceback
+
+            parsers.log(f"roles: {msg}\n{traceback.format_exc()}")
+        return {"flags": [], "lead": None, "acronyms": []}
 
 
 def char_spans(doc, text, lang):
@@ -416,13 +458,13 @@ def char_spans(doc, text, lang):
     return spans
 
 
-def to_bytes(text, spans):
-    """Character offsets to UTF-8 byte offsets: Armenian and Cyrillic letters
-    are two bytes each."""
+def to_bytes(text, items):
+    """[(start, end, ...)] in character offsets to UTF-8 byte offsets, the rest
+    of each item kept: Armenian and Cyrillic letters are two bytes each."""
     byte_at = [0]
     for ch in text:
         byte_at.append(byte_at[-1] + len(ch.encode()))
-    return sorted([byte_at[s], byte_at[e], role] for s, e, role in spans)
+    return sorted([byte_at[s], byte_at[e], *rest] for s, e, *rest in items)
 
 
 # "Google-ը", "API-ի": the tokenizer splits an Armenian ending written after a
@@ -517,11 +559,16 @@ def duration(seconds):
 
 
 def source_hash():
+    """Of this file and the pattern checks: a change to either needs a fresh
+    process. The word lists are reread as they change, so they are not here."""
+    h = hashlib.sha256()
     try:
-        with open(SOURCE, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
+        for path in (SOURCE, prose_patterns.__file__):
+            with open(path, "rb") as f:
+                h.update(f.read())
     except OSError:
         return None
+    return h.hexdigest()
 
 
 class Client:
@@ -726,8 +773,9 @@ def daemon(path, keep_alive):
 TAGS = {"subject": "S", "action": "A", "object": "O", "noun": "N"}
 
 
-def show(parsers, text, nouns):
-    """Print each paragraph with its roles in brackets: [The old man]S."""
+def show(parsers, text, nouns, flags=False):
+    """Print each paragraph with its roles in brackets: [The old man]S. With
+    flags, list the pattern flags under it instead."""
     paras = [{"text": p} for p in re.split(r"\n\s*\n", text) if p.strip()]
     results = dict(analyse(parsers, paras))
     for i, para in enumerate(paras):
@@ -736,6 +784,16 @@ def show(parsers, text, nouns):
             print(f"error: {res['error']}")
             continue
         raw = para["text"].encode()
+        if flags:
+            print(f"{res['lang']}: {para['text'].strip()}")
+            for s, e, code, message in res["flags"]:
+                print(f"  {code:<16} [{raw[s:e].decode()}] {message}")
+            if res["lead"]:
+                s, e, form = res["lead"]
+                print(f"  {'(lead)':<16} [{raw[s:e].decode()}] {form}")
+            for s, e, word, defined in res["acronyms"]:
+                print(f"  {'(acronym)':<16} [{word}] {'defined here' if defined else 'not defined here'}")
+            continue
         out, pos = [], 0
         for s, e, role in res["spans"]:
             if role == "noun" and not nouns:
@@ -751,6 +809,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--show", action="store_true", help="read text, print it with roles in brackets")
     parser.add_argument("--no-nouns", action="store_true", help="with --show, leave other nouns unmarked")
+    parser.add_argument("--flags", action="store_true", help="with --show, list the pattern flags instead")
     parser.add_argument("--daemon", metavar="SOCKET", help="run the shared parser on this Unix socket")
     parser.add_argument(
         "--keep-alive",
@@ -770,7 +829,7 @@ def main():
 
     parsers = Parsers(log)
     if args.show:
-        show(parsers, unicodedata.normalize("NFC", sys.stdin.read()), not args.no_nouns)
+        show(parsers, unicodedata.normalize("NFC", sys.stdin.read()), not args.no_nouns, args.flags)
     else:
         serve(parsers)
 

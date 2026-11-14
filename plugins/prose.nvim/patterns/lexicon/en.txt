@@ -1,0 +1,187 @@
+# English word lists for prose.nvim's pattern flags (patterns/prose_patterns.py).
+#
+# One entry per line under a [section]. Words match as written or by their
+# dictionary form, so "make use of" also finds "made use of". Punctuation is
+# ignored. A word may carry a part of speech: "very/ADV" matches only the adverb.
+# Edits apply from the next paragraph parsed.
+
+[opener]
+# Matched at the start of a sentence only.
+it is important to note that
+it is worth noting that
+it should be noted that
+it must be noted that
+it is clear that
+it is obvious that
+needless to say
+it goes without saying that
+as a matter of fact
+it is interesting to note that
+it is worth mentioning that
+
+[wordy]
+in order to
+due to the fact that
+owing to the fact that
+in spite of the fact that
+despite the fact that
+in light of the fact that
+the fact that
+at this point in time
+at the present time
+in the event that
+in the near future
+for the purpose of
+with regard to
+with respect to
+in regard to
+in terms of
+a number of
+the majority of
+a large number of
+on a daily basis
+in a timely manner
+prior to
+subsequent to
+in close proximity to
+have the ability to
+make use of
+each and every
+first and foremost
+end result
+final outcome
+past history
+future plans
+basic fundamentals
+advance planning
+completely eliminate
+absolutely essential
+close proximity
+unexpected surprise
+whether or not
+the reason why
+at all times
+in the process of
+there is a need for
+on the grounds that
+until such time as
+with the exception of
+in excess of
+a great deal of
+is indicative of
+in the absence of
+
+[cliche]
+at the end of the day
+low-hanging fruit
+think outside the box
+move the needle
+game changer
+paradigm shift
+best of both worlds
+tip of the iceberg
+the bottom line
+in this day and age
+perfect storm
+going forward
+touch base
+circle back
+deep dive
+double-edged sword
+play a crucial role
+play a key role
+play an important role
+play a vital role
+not rocket science
+last but not least
+only time will tell
+few and far between
+level playing field
+the elephant in the room
+raise the bar
+push the envelope
+cutting-edge
+at the heart of
+
+[filler]
+basically
+essentially
+actually
+literally
+in fact
+for all intents and purposes
+the thing is
+so to speak
+in essence
+per se
+
+[hedge]
+perhaps
+maybe
+arguably
+somewhat
+possibly
+probably
+apparently
+seemingly
+it seems
+it appears
+seem to
+appear to
+kind of
+sort of
+more or less
+to some extent
+to a certain extent
+in some ways
+i think
+i believe
+i guess
+i feel that
+relatively
+fairly
+slightly
+
+[intensifier]
+very/ADV
+really/ADV
+extremely
+incredibly
+highly
+totally
+absolutely
+utterly
+truly
+clearly
+obviously
+of course
+certainly
+definitely
+undoubtedly
+super/ADV
+hugely
+tremendously
+enormously
+
+[light-verb]
+# Verbs that, with an action noun as their object, spread one action over two
+# words: "make a decision", "conduct an analysis".
+make
+take
+give
+have
+do
+perform
+conduct
+carry out
+provide
+undertake
+reach
+offer
+put
+
+[acronym-ok]
+# Acronyms common enough to need no definition. All languages share these.
+API URL URI CPU GPU RAM HTTP HTTPS JSON YAML TOML HTML CSS SQL PDF CSV XML UI UX OK US UK EU AI ML LLM CLI OS ID IO
+TODO FIXME NOTE README FAQ LSP UTF ASCII USB SSH SSL TLS PR CI CD NLP GB MB KB TB AM PM BC AD II III IV VI VII VIII IX
+XI XII DNS IP TCP UDP VPN SDK IDE GUI TUI PNG JPG JPEG SVG GIF MP3 MP4 RSS IMO TL DR ASAP FYI ETA PhD MSc BSc CEO CTO

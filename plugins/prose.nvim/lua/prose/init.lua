@@ -7,6 +7,7 @@
 --   Fill        what else FITS HERE? a masked model (prose.alternatives, bin/fill)
 --   Highlight   dim parentheticals, colour quotes (prose.highlight)
 --   Roles       colour subject, action, object: a parser, bin/roles (prose.roles)
+--   Patterns    flag bad patterns as quiet diagnostics, same parser (prose.patterns)
 --   Keyboard    type Armenian or Russian with the OS on English (prose.layout)
 --   Emoji       search emoji by name, insert one (prose.emoji)
 --
@@ -32,6 +33,7 @@ M.defaults = {
     synonym = '<leader>ps',
     fill = '<leader>pf',
     roles = '<leader>pg', -- toggles subject/action/object colouring
+    patterns = '<leader>pp', -- toggles the bad-pattern flags (diagnostics)
     layout = '<leader>k', -- opens the keyboard layout picker
     emoji = '<leader>pe', -- opens the emoji picker
   },
@@ -57,6 +59,10 @@ M.defaults = {
   -- opens, not only after keys.roles. The first such file starts the shared
   -- parser, which then holds about 0.9 GB until `:ProseRoles stop`.
   roles = false,
+  -- Flag bad patterns (prose/patterns.lua) in every file of `filetypes` as it
+  -- opens: true, or { off = { 'Repetition', ... } } to hide some checks. Shares
+  -- the parser with `roles`.
+  patterns = false,
 }
 
 M.config = vim.deepcopy(M.defaults)
@@ -88,6 +94,10 @@ local function attach(buf)
     require('prose.roles').toggle(0)
   end, '[P]rose [G]rammar roles (subject, action, object)')
 
+  map(keys.patterns, function()
+    require('prose.patterns').toggle(0)
+  end, '[P]rose [P]attern flags (]d / [d to walk them)')
+
   map(keys.layout, function()
     require('prose.layout').pick(M.config.layouts)
   end, '[K]eyboard layout')
@@ -104,6 +114,9 @@ local function attach(buf)
   -- buffers, and parsing those would only cost.
   if M.config.roles and vim.bo[buf].buftype == '' then
     require('prose.roles').enable(buf, { auto = true })
+  end
+  if M.config.patterns and vim.bo[buf].buftype == '' then
+    require('prose.patterns').enable(buf, { auto = true })
   end
 end
 
@@ -146,6 +159,9 @@ function M.setup(opts)
     end
   end
   local cfg = M.config
+  if type(cfg.patterns) == 'table' then
+    require('prose.patterns').off = cfg.patterns.off or {}
+  end
 
   if cfg.spell then
     require('prose.spell').setup(cfg.spell)
@@ -164,6 +180,9 @@ function M.setup(opts)
   vim.api.nvim_create_user_command('Fill', function()
     require('prose.alternatives').pick_fill()
   end, { desc = 'Words that fit in place of the one under the cursor (masked language model)' })
+  vim.api.nvim_create_user_command('ProsePatterns', function()
+    require('prose.patterns').toggle(0)
+  end, { desc = 'Toggle the bad-pattern flags in this buffer; ]d and [d walk them' })
   vim.api.nvim_create_user_command('ProseRoles', function(o)
     local roles = require 'prose.roles'
     if o.args == '' then

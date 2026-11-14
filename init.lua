@@ -527,6 +527,7 @@ require('lazy').setup({
     lazy = false,
     opts = {
       roles = true, -- subject/action/object colours in every markdown file; <leader>pg turns them off
+      patterns = true, -- bad-pattern flags (quiet hints, ]d / [d) in every markdown file; <leader>pp turns them off
     },
   },
   -- lua/plugins/pencil.lua

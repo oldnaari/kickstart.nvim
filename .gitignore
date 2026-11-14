@@ -9,3 +9,6 @@ spell/*.spl
 !spell/hy.utf-8.spl
 !spell/ru.utf-8.spl
 lazy-lock.json
+
+# Python bytecode from the prose.nvim tools (bin/roles imports patterns/).
+__pycache__/
