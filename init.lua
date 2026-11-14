@@ -194,6 +194,20 @@ vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
 
+-- ]d / [d (built in) jump between diagnostics but, since 0.11, do not show the
+-- message, and virtual text is off. Open the float on arrival instead; it closes
+-- when the cursor moves. Prose flags (Vale, prose.nvim) depend on this: they
+-- are dim underlines with no other text on screen.
+vim.diagnostic.config {
+  jump = {
+    on_jump = function(diagnostic, bufnr)
+      if diagnostic then
+        vim.diagnostic.open_float { bufnr = bufnr, scope = 'cursor', focus = false }
+      end
+    end,
+  },
+}
+
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
 -- is not what someone will guess without a bit more experience.

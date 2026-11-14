@@ -61,12 +61,14 @@ The defaults:
   thesaurus = true, -- 'thesaurusfunc' for <C-x><C-t>
   path = true,      -- put bin/ on $PATH
   spell = {},       -- { local_list = ..., global_list = ... }, or false to skip
-  vale = true,      -- configure vale_ls with vale/.vale.ini
+  vale = true,      -- configure vale_ls with vale/.vale.ini; its flags arrive as Hints
   roles = false,    -- true: colour grammar roles in every file of `filetypes` as it opens
 }
 ```
 
-Two parts stay in your own config:
+Prose flags are advice, often fine to ignore, so they are never drawn as errors. Every Vale flag below `error` level arrives as a Hint (the Vale levels still decide what is shown at all, through `MinAlertLevel`). Style `DiagnosticUnderlineHint` to taste; this config uses a straight underline in Nord's bright black.
+
+Three parts stay in your own config:
 
 - **Enabling vale_ls.** The plugin configures the server but does not start it. Use mason-lspconfig or `vim.lsp.enable 'vale_ls'`.
 - **Highlighting.** mini.hipatterns has one global config, so pass the highlighters in yourself:
@@ -76,6 +78,17 @@ Two parts stay in your own config:
   ```
 
   The groups `MarkdownProseParen` and `MarkdownProseString` link to `Comment` and `String` unless your theme defines them.
+- **Reading a flag.** `]d` and `[d` jump between flags but, since Neovim 0.11, do not show the message. To see it on arrival:
+
+  ```lua
+  vim.diagnostic.config {
+    jump = {
+      on_jump = function(d, bufnr)
+        if d then vim.diagnostic.open_float { bufnr = bufnr, scope = 'cursor', focus = false } end
+      end,
+    },
+  }
+  ```
 
 ## Roles
 

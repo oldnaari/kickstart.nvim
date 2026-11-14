@@ -46,8 +46,10 @@ M.cache_size = 2000
 -- number with s, m or h. Read by the Neovim that starts the shared parser.
 -- Loading again costs about 5 s for Russian and 12 s for Armenian.
 M.keep_alive = { en = 'forever', ru = '30m', hy = '30m' }
--- Below hipatterns (200), so a role inside (a parenthetical) stays dimmed.
-M.priority = 150
+-- Below hipatterns (200), so a role inside (a parenthetical) stays dimmed, and
+-- below diagnostic underlines (150): a character shows one underline style, and
+-- a prose flag's line must win over a noun's dots.
+M.priority = 140
 
 M.groups = {
   subject = 'ProseSubject',

@@ -45,6 +45,7 @@ local function palette()
   end
   return {
     bg_soft = nord.nord1_gui, -- #3B4252
+    dim = nord.nord3_gui, -- #4C566A, the terminal's bright black
     muted = nord.nord3_gui_bright, -- #616E88
     cyan = nord.nord7_gui, -- #8FBCBB
     frost = nord.nord8_gui, -- #88C0D0
@@ -138,6 +139,13 @@ local function extmark_groups(p)
     ProseAction = { fg = p.yellow },
     ProseObject = { fg = p.purple },
     ProseNoun = { sp = p.blue, underdotted = true },
+    -- Prose flags: Vale and prose.nvim report style advice as Hints, which is
+    -- often fine to ignore, so no red and no curl. A straight underline in
+    -- nord3 is findable but quiet, and stays distinct from ProseNoun's dots.
+    -- The colour is explicit: left unset, the underline would inherit ProseNoun's
+    -- blue `sp` under nouns instead of following the text. Global, so LSP hints
+    -- in code look the same.
+    DiagnosticUnderlineHint = { underline = true, sp = p.dim },
   }
 end
 

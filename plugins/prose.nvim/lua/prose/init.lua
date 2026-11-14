@@ -107,6 +107,23 @@ local function attach(buf)
   end
 end
 
+-- Vale reports `warning` rules as LSP Warnings, which themes draw as coloured
+-- undercurls, the look of a real error. Style advice is often fine to ignore, so
+-- every Vale flag below `error` becomes a Hint: one quiet severity for all prose
+-- flags, styled once (DiagnosticUnderlineHint). The Vale levels still decide
+-- what is shown at all (MinAlertLevel); a rule set to `error` stays loud.
+-- Vale-ls pushes diagnostics and has no pull support (verified headless), so
+-- this handler is the only path.
+local function as_hints(err, result, ctx)
+  local S = vim.lsp.protocol.DiagnosticSeverity
+  for _, d in ipairs(result and result.diagnostics or {}) do
+    if d.severity ~= S.Error then
+      d.severity = S.Hint
+    end
+  end
+  return vim.lsp.diagnostic.on_publish_diagnostics(err, result, ctx)
+end
+
 -- Fallbacks for the groups prose/highlight.lua uses, so it works with any
 -- colorscheme. `default`: a theme that defines them wins, whichever runs first.
 local function default_highlights()
@@ -184,6 +201,7 @@ function M.setup(opts)
         installVale = false, -- use the vale on PATH (Mason's), never a second downloaded copy
         syncOnStartup = false, -- no Packages to sync; skip the startup cost
       },
+      handlers = { ['textDocument/publishDiagnostics'] = as_hints },
     })
   end
 
