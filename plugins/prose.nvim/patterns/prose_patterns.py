@@ -254,6 +254,11 @@ class Lexicon:
     def entries(self, section):
         return self.sections.get(section, ([], {}))[0]
 
+    def tokens(self, section):
+        """Every word of a word-only section ([weak-verb], [acronym-ok]), which
+        lists several words to a line."""
+        return {t for e in self.entries(section) for t, _ in e}
+
     def find(self, sent, section, at_start=False):
         """[(word ids)] for each match of the section's entries in sent."""
         _, index = self.sections.get(section, ([], {}))
@@ -587,8 +592,8 @@ def object_gap(S, lang):
         gap = [i for i in range(lo + 1, hi) if i not in skip and not S.punct(S.by_id[i])]
         if len(gap) >= OBJECT_GAP:
             out.append(flag(S, gap, "ObjectGap",
-                            f"{len(gap)} words between '{h.text}' and its object '{S.say(core)}'. "
-                            "(Strunk & White: keep related words together)"))
+                            f"{len(gap)} words between '{h.text}' and its object '{S.say(core)}': the reader "
+                            "waits to learn what the verb acts on. (Strunk & White: keep related words together)"))
     return out
 
 
@@ -660,10 +665,11 @@ def passive(S, lang):
         ids = {w.id} | {a.id for a in aux} | {c.id for c in S.children(w, "aux") if c.id < w.id}
         agent = [c for c in S.kids[w.id] if c.deprel == "obl:agent"]
         if agent:
-            msg = (f"'{S.say(ids)}' is passive and names its actor, '{S.say(S.core(agent[0]))}'. "
-                   "(Williams: characters as subjects)")
+            msg = (f"'{S.say(ids)}' is passive with its actor, '{S.say(S.core(agent[0]))}', at the end: "
+                   "the one who acts is not the subject. (Williams: characters as subjects)")
         else:
-            msg = f"'{S.say(ids)}' is passive. It matters when the actor does. (Williams; Pullum: often fine)"
+            msg = (f"'{S.say(ids)}' is passive and does not say who acts. Fine when that does not matter; "
+                   "a gap when it does. (Williams; Pullum)")
         out.append(flag(S, ids, "Passive", msg))
     return out
 
@@ -713,7 +719,8 @@ def light_verb(S, lang, lex):
                     ids = set(range(min(w.id, o.id), max(w.id, o.id) + 1))
                     source = "Нора Галь: расщепление сказуемого" if lang == "ru" else "Williams: actions as verbs"
                     out.append(flag(S, ids, "LightVerb",
-                                    f"'{S.say(ids)}' spreads one action over a verb and a noun. ({source})"))
+                                    f"'{S.say(ids)}' spreads one action over a verb and a noun: the noun "
+                                    f"carries the meaning, the verb only holds it. ({source})"))
                     objects.add(o.id)
     return out, objects
 
@@ -748,7 +755,8 @@ def nominalization(S, lang, skip):
         ids = set(range(min(ids), max(ids) + 1))
         source = "Нора Галь; Williams" if lang == "ru" else "Williams: actions as verbs"
         out.append(flag(S, ids, "Nominalization",
-                        f"'{S.say(ids)}': the action is a noun, '{w.text}', with its object attached. ({source})"))
+                        f"'{S.say(ids)}': the action is a noun, '{w.text}', not a verb, so the sentence "
+                        f"can leave out who does it. ({source})"))
     return out
 
 
@@ -777,10 +785,11 @@ def expletive(S, lang):
 LEXICON_CODES = [
     ("opener", "EmptyOpener", "'{}' is an empty opener: the point comes later than it needs to. (Williams)"),
     ("wordy", "Wordy", "'{}' is wordy: fewer words say the same. (Strunk & White: omit needless words)"),
-    ("cliche", "Cliche", "'{}' is a stock phrase. (Orwell, rule 1)"),
+    ("cliche", "Cliche", "'{}' is a stock phrase: readers skim it, and it says nothing specific. (Orwell, rule 1)"),
     ("filler", "Filler", "'{}' is filler: it usually adds nothing. (Orwell, rule 3)"),
-    ("hedge", "Hedge", "'{}' hedges. It belongs where the uncertainty is real. (Pinker)"),
-    ("intensifier", "Intensifier", "'{}' intensifies without giving a reason. (Zinsser)"),
+    ("hedge", "Hedge", "'{}' hedges: right where the uncertainty is real, weakening where it is not. (Pinker)"),
+    ("intensifier", "Intensifier", "'{}' intensifies without giving a reason: it asks the reader to take the "
+     "emphasis on trust. (Zinsser)"),
 ]
 
 
@@ -841,10 +850,12 @@ def noun_stack(S, lang):
                 ids |= {x.id} | {k.id for k in S.children(x, "case", "det")}
             ids = set(range(min(ids), max(ids) + 1))
             if lang == "en":
-                msg = f"'{S.say(ids)}' chains {len(chain) - 1} 'of' phrases. (plain-language guidelines)"
+                msg = (f"'{S.say(ids)}' chains {len(chain) - 1} 'of' phrases: the reader unpacks it phrase "
+                       "by phrase. (plain-language guidelines)")
             else:
                 source = "Нора Галь: нанизывание падежей" if lang == "ru" else "plain-language guidelines"
-                msg = f"'{S.say(ids)}' chains {len(chain)} nouns, each depending on the next. ({source})"
+                msg = (f"'{S.say(ids)}' chains {len(chain)} nouns, each depending on the next: the reader "
+                       f"unpacks it word by word. ({source})")
             out.append(flag(S, ids, "NounStack", msg))
     return out
 
@@ -880,20 +891,25 @@ def negation(S, lang):
             if len(ws) >= 2:
                 ids = {x.id for x in ws}
                 ids = set(range(min(ids), max(ids) + 1))
-                out.append(flag(S, ids, "Negation", f"'{S.say(ids)}' negates twice in one clause. (Williams)"))
+                out.append(flag(S, ids, "Negation", f"'{S.say(ids)}' negates twice in one clause: the reader "
+                                "undoes both to find the meaning. (Williams)"))
     return out
 
 
 def adverbs(S, lang, lex):
+    """A manner adverb propping up a generic verb: "walked slowly", where one
+    specific verb could carry both. Only verbs in the [weak-verb] list count:
+    "flip vertically" says which way, and no single verb does that."""
     known = set()
     for section in ("intensifier", "hedge", "filler"):
         known |= lex.words(section)
+    weak = lex.tokens("weak-verb")
     out = []
     for w in S.words:
         if w.upos != "ADV" or base(w.deprel) != "advmod" or S.opaque(w):
             continue
         h = S.by_id.get(w.head)
-        if not h or h.upos != "VERB":
+        if not h or h.upos != "VERB" or norm(h.lemma) not in weak:
             continue
         lemma = norm(w.lemma)
         if lemma in known:
@@ -905,7 +921,9 @@ def adverbs(S, lang, lex):
         else:
             ok = lemma.endswith(("որեն", "աբար"))
         if ok:
-            out.append(flag(S, [w.id], "Adverb", f"'{w.text}' is a manner adverb on '{h.text}'. (King; Strunk & White)"))
+            out.append(flag(S, [w.id, h.id], "Adverb",
+                            f"'{w.text}' props up the generic verb '{h.text}': a more specific verb could carry "
+                            "both at once. (King; Strunk & White)"))
     return out
 
 
@@ -951,7 +969,8 @@ def parallel(S, lang):
             if forms[w.id] in nonfinite and forms[w.id] != majority:
                 out.append(flag(S, [w.id] + [m.id for m in S.children(w, "mark")], "Parallel",
                                 f"'{w.text}' is a {forms[w.id]}, but the items it is joined with are "
-                                f"{majority}s. (Strunk & White: parallel form)"))
+                                f"{majority}s: items that do the same job read more easily in the same form. "
+                                "(Strunk & White: parallel form)"))
     return out
 
 
@@ -1058,7 +1077,8 @@ def repeated_openings(sents):
             for k in range(i, j + 1):
                 S = sents[k]
                 out.append(flag(S, [S.first().id], "RepeatedOpening",
-                                f"{n} sentences in a row open with '{S.first().text}'."))
+                                f"{n} sentences in a row open with '{S.first().text}': the openings blur "
+                                "together, and what is new in each sentence starts later."))
         i = j + 1
     return out
 
@@ -1082,8 +1102,8 @@ def repetition(sents):
             if lemma in last and pos - last[lemma] <= REPETITION_WINDOW:
                 d = pos - last[lemma] - 1
                 out.append(flag(S, [w.id], "Repetition",
-                                f"'{w.text}' again, {plural(d, 'word')} after the last one. "
-                                "(Fine for a term used on purpose.)"))
+                                f"'{w.text}' again, {plural(d, 'word')} after the last one: a close repeat "
+                                "catches the ear. Fine for a term used on purpose."))
             last[lemma] = pos
     return out
 
@@ -1174,7 +1194,8 @@ def abstract(sents, lang, log):
     S0 = sents[0]
     return [flag(S0, [S0.first().id], "Abstract",
                  f"{share:.0%} of this paragraph's content words are abstract (such as "
-                 f"{', '.join(repr(e) for e in examples)}). (Strunk & White: definite, specific, concrete)")]
+                 f"{', '.join(repr(e) for e in examples)}): abstract words are harder to picture and to "
+                 "remember. (Strunk & White: definite, specific, concrete)")]
 
 
 ACRONYM = re.compile(r"(?<!\w)([^\W\d_]{2,6}\d{0,2})(?!\w)")
@@ -1182,7 +1203,7 @@ ACRONYM = re.compile(r"(?<!\w)([^\W\d_]{2,6}\d{0,2})(?!\w)")
 
 def acronyms(sents, lang, lex):
     # Several to a line in the lists, and shared by all languages.
-    allowed = {t.upper() for other in ("en", "ru", "hy") for e in lexicon(other).entries("acronym-ok") for t, _ in e}
+    allowed = {t.upper() for other in ("en", "ru", "hy") for t in lexicon(other).tokens("acronym-ok")}
     out = []
     for S in sents:
         for w in S.content:

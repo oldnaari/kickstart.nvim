@@ -1,6 +1,7 @@
 # English word lists for prose.nvim's pattern flags (patterns/prose_patterns.py).
 #
-# One entry per line under a [section]. Words match as written or by their
+# One entry per line under a [section]; [weak-verb] and [acronym-ok] take
+# several words to a line. Words match as written or by their
 # dictionary form, so "make use of" also finds "made use of". Punctuation is
 # ignored. A word may carry a part of speech: "very/ADV" matches only the adverb.
 # Edits apply from the next paragraph parsed.
@@ -162,6 +163,18 @@ super/ADV
 hugely
 tremendously
 enormously
+
+[weak-verb]
+# Generic verbs that a manner adverb props up: "walked slowly", "said loudly".
+# The Adverb check flags a manner adverb only on these, where one specific verb
+# could carry both. Verbs whose adverb says which way or how exactly ("flip
+# vertically", "sort alphabetically") are not here, and should not be.
+say tell speak talk ask answer reply call
+walk run go come move leave enter return
+look see watch hear listen
+eat drink laugh cry smile sit stand fall rise grow
+close open shut put take get make do hold hit push pull throw break
+read write check think feel try change increase decrease drop
 
 [light-verb]
 # Verbs that, with an action noun as their object, spread one action over two

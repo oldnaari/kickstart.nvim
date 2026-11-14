@@ -93,7 +93,13 @@ function M.publish(buf, paras, cache, whole)
         if not seen[word] then
           seen[word] = true
           if not defined then
-            add(p, a[1], a[2], 'Acronym', ("'%s' is used before it is defined. (Pinker: the curse of knowledge)"):format(word))
+            add(
+              p,
+              a[1],
+              a[2],
+              'Acronym',
+              ("'%s' is used before it is defined: a reader who does not know it has to guess. (Pinker: the curse of knowledge)"):format(word)
+            )
           end
         end
       end
@@ -126,7 +132,7 @@ function M.publish(buf, paras, cache, whole)
             it.lead[1],
             it.lead[2],
             'Parallel',
-            ('This item opens with %s; %d of the %d items in this list open with %s. (Strunk & White: parallel form)'):format(
+            ('This item opens with %s, but %d of the %d items in this list open with %s: items that do the same job read more easily in the same form. (Strunk & White: parallel form)'):format(
               FORMS[form],
               n,
               known,

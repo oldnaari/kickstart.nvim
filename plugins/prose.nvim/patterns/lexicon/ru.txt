@@ -1,6 +1,7 @@
 # Russian word lists for prose.nvim's pattern flags (patterns/prose_patterns.py).
 #
-# One entry per line under a [section]. Words match as written or by their
+# One entry per line under a [section]; [weak-verb] and [acronym-ok] take
+# several words to a line. Words match as written or by their
 # dictionary form, so write entries in the dictionary form where words inflect:
 # "играть важный роль" finds "играет важную роль" and "играли важную роль".
 # Punctuation is ignored, and ё counts as е. Edits apply from the next paragraph.
@@ -121,6 +122,20 @@
 реально
 совершенно
 исключительно
+
+[weak-verb]
+# Общие глаголы, которые держит наречие образа действия: «медленно пошёл»,
+# «громко сказал». Проверка Adverb отмечает наречие только при них, где один
+# точный глагол сказал бы оба слова. Глаголы, где наречие задаёт направление
+# или способ («повернуть вертикально»), сюда не входят.
+сказать говорить произнести спросить ответить
+идти пойти ходить бежать побежать ехать двигаться
+смотреть посмотреть глядеть слушать
+есть пить смеяться плакать улыбаться сидеть стоять падать упасть расти
+закрыть закрывать открыть открывать положить взять брать делать сделать
+держать ударить толкнуть тянуть бросить
+читать прочитать писать написать проверить проверять думать подумать
+менять изменить
 
 [light-verb]
 # Verbs that, with an action noun as their object, split the predicate:

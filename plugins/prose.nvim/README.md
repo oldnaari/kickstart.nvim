@@ -113,7 +113,7 @@ The checks ride on the parser behind the role colours, so they cover English, Ru
 | Wordy, Filler, Cliche, Hedge, Intensifier | phrases from the word lists in `patterns/lexicon/` | high / high / medium |
 | NounStack | 3+ nouns stacked ("model evaluation pipeline config"), or a chain of 3+ genitives or "of" phrases | medium / high / medium |
 | Negation | a double negative: "not uncommon", «не невозможно» | medium / low / low |
-| Adverb | a manner adverb on a verb: "quickly", «быстро», «արագորեն» | high / high / medium |
+| Adverb | a manner adverb propping up a generic verb (`[weak-verb]` list): "walked slowly", «медленно пошёл», «դանդաղորեն քայլեց»; not "flip vertically" | high / high / medium |
 | Dangling | an opening participle or converb whose implied doer is not the main subject | low / medium / low |
 | Parallel | list items, or joined verbs, that open in different forms | high for lists |
 | Acronym | an all-caps word used before it is defined (whole file only) | medium |
@@ -129,7 +129,7 @@ The checks ride on the parser behind the role colours, so they cover English, Ru
 opts = { patterns = { off = { 'Repetition', 'Cohesion' } } }
 ```
 
-- **Word lists.** `patterns/lexicon/en.txt`, `ru.txt` and `hy.txt`, one entry per line under a `[section]`. Entries match the word as written or its dictionary form, so «являться» finds «является». Edits apply from the next paragraph parsed; no restart. The Armenian lists are a short start: there is no published list to take them from.
+- **Word lists.** `patterns/lexicon/en.txt`, `ru.txt` and `hy.txt`, one entry per line under a `[section]` (`[weak-verb]` and `[acronym-ok]` take several words to a line). Entries match the word as written or its dictionary form, so «являться» finds «является». Edits apply from the next paragraph parsed; no restart. The Armenian lists are a short start: there is no published list to take them from.
 - **English extras, both optional.** WordNet (`brew install wordnet`) confirms English nominalizations ("decision" comes from "decide", "nation" from no verb). The Abstract check needs the concreteness ratings of Brysbaert, Warriner & Kuperman (2014); the first English paragraph downloads them once, 2 MB from the publisher, into `~/Library/Caches/prose.nvim` (`~/.cache/prose.nvim` on Linux). Without them that check is skipped.
 - **Checking a rule.** `bin/roles --show --flags < file.md` lists every flag with its text and message.
 - **Not here.** Sentence length stays a Vale rule (`Prompt.LongSentence`, and `Prompt.LongSentenceHyRu` for Armenian and Russian), and so does the vague "This is…" opener.

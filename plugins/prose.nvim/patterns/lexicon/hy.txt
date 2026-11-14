@@ -4,7 +4,8 @@
 # ones exist for Armenian, so these are short and meant to grow. Add what you
 # notice in your own writing.
 #
-# One entry per line under a [section]. Words match as written or by their
+# One entry per line under a [section]; [weak-verb] and [acronym-ok] take
+# several words to a line. Words match as written or by their
 # dictionary form (verbs in -ել/-ալ), so "հանդիսանալ" finds "հանդիսանում է".
 # Punctuation is ignored; ։ and : end sentences. A word may carry a part of
 # speech: "շատ/ADV" matches only the adverb, not "շատ" as "many".
@@ -53,6 +54,17 @@
 իհարկե
 ակնհայտորեն
 միանշանակ
+
+[weak-verb]
+# Generic verbs that a manner adverb props up ("դանդաղորեն քայլել"). The Adverb
+# check flags a manner adverb only on these, where one specific verb could carry
+# both. A starting point: add what you notice.
+ասել խոսել հարցնել պատասխանել
+գնալ գալ քայլել վազել շարժվել
+նայել տեսնել լսել
+ուտել խմել ծիծաղել լացել ժպտալ նստել կանգնել ընկնել աճել
+փակել բացել դնել վերցնել անել պահել խփել հրել քաշել նետել
+կարդալ գրել ստուգել մտածել փոխել
 
 [light-verb]
 # Verbs that, with an action noun as their object, spread one action over two
