@@ -860,6 +860,57 @@ def noun_stack(S, lang):
     return out
 
 
+# What a set-off phrase before ", that" can be: "He said, of course, that...".
+INSERTION = {"advmod", "discourse", "obl", "nmod", "parataxis", "vocative", "appos", "advcl", "conj", "dep"}
+
+
+def comma_that(S, lang):
+    """English only: a comma right before "that" when it starts a clause, as in
+    "keep in mind, that...". Russian («, что») and Armenian («, որ») require
+    that comma, and writers carry it over. Skipped: a comma that closes an
+    inserted phrase ("He said, of course, that"), "that" clauses on a noun ("The
+    idea, that it works, is wrong" is apposition), and "that" as a pronoun
+    ("this, that and the other")."""
+    if lang != "en":
+        return []
+    out = []
+    words = S.words
+    for i, w in enumerate(words):
+        if i == 0 or norm(w.text) != "that" or words[i - 1].text != ",":
+            continue
+        h = S.by_id.get(w.head)
+        if not h:
+            continue
+        if w.deprel == "mark" and base(h.deprel) != "acl":
+            relative = False
+        elif S.feat(w, "PronType") == "Rel" and h.deprel == "acl:relcl":
+            relative = True
+        else:
+            continue
+        # A comma earlier on, with one whole phrase between: this comma closes it.
+        j = next((k for k in range(i - 2, -1, -1) if words[k].text == ","), None)
+        if j is not None and j + 1 < i - 1:
+            between = [x for x in words[j + 1:i - 1] if not S.punct(x)]
+            inner = {x.id for x in between}
+
+            def phrase(x):  # x heads exactly the words between the commas
+                return {k for k in S.subtree(x) if not S.punct(S.by_id[k])} == inner
+
+            if any(base(x.deprel) in INSERTION and phrase(x) for x in between):
+                continue
+        s, _ = word_range(words[i - 1])
+        _, e = word_range(w)
+        if relative:
+            msg = ("A comma before relative 'that': a clause set off by commas adds an aside, and English opens "
+                   "those with 'which'; 'that' opens a clause that narrows the noun, with no comma. "
+                   "(Chicago Manual of Style, ch. 6)")
+        else:
+            msg = ("A comma before 'that' cuts the clause off from the word it completes: English puts none here, "
+                   "though Russian («, что») and Armenian («, որ») do. (Chicago Manual of Style, ch. 6)")
+        out.append((s, e, "CommaThat", msg))
+    return out
+
+
 def negation(S, lang):
     out = []
     for w in S.words:
@@ -1242,8 +1293,8 @@ def detect(doc, text, lang, log=lambda msg: None):
         lv, objects = light_verb(S, lang, lex)
         flags += lv
         flags += nominalization(S, lang, objects)
-        for check in (subject_gap, object_gap, long_opener, nesting, passive, expletive, noun_stack, negation,
-                      parallel, dangling):
+        for check in (subject_gap, object_gap, long_opener, nesting, passive, expletive, noun_stack, comma_that,
+                      negation, parallel, dangling):
             flags += check(S, lang)
         flags += lexicon_flags(S, lang, lex)
         flags += adverbs(S, lang, lex)

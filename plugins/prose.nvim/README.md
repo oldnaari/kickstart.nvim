@@ -109,10 +109,11 @@ The checks ride on the parser behind the role colours, so they cover English, Ru
 | Passive | each passive; notes the actor if it is named | high / medium / medium |
 | Nominalization | an action noun with its object attached: "the implementation of the feature", «осуществление проверки» | medium / medium / low |
 | LightVerb | a light verb with an action noun: "make a decision", «оказать помощь», «որոշում կայացնել» | medium / high / medium |
-| EmptyOpener | "There are…", "It is important to note that…", «Следует отметить, что…» | high / high / medium |
+| EmptyOpener | "There are…", "It is important to note that…", "Keep in mind that…", «Следует отметить, что…» | high / high / medium |
 | Wordy, Filler, Cliche, Hedge, Intensifier | phrases from the word lists in `patterns/lexicon/` | high / high / medium |
 | NounStack | 3+ nouns stacked ("model evaluation pipeline config"), or a chain of 3+ genitives or "of" phrases | medium / high / medium |
 | Negation | a double negative: "not uncommon", «не невозможно» | medium / low / low |
+| CommaThat | a comma before a "that" clause: "keep in mind, that…", "a bug, that nobody reported". English only: Russian («, что») and Armenian («, որ») need that comma, which is why it carries over. Not after an inserted phrase ("He said, of course, that…") | high / – / – |
 | Adverb | a manner adverb propping up a generic verb (`[weak-verb]` list): "walked slowly", «медленно пошёл», «դանդաղորեն քայլեց»; not "flip vertically" | high / high / medium |
 | Dangling | an opening participle or converb whose implied doer is not the main subject | low / medium / low |
 | Parallel | list items, or joined verbs, that open in different forms | high for lists |

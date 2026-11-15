@@ -19,6 +19,11 @@ it goes without saying that
 as a matter of fact
 it is interesting to note that
 it is worth mentioning that
+keep in mind that
+please keep in mind that
+bear in mind that
+please bear in mind that
+please note that
 
 [wordy]
 in order to
@@ -123,6 +128,9 @@ arguably
 somewhat
 possibly
 probably
+likely/ADV
+most likely
+be likely
 apparently
 seemingly
 it seems
