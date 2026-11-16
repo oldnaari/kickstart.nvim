@@ -1393,17 +1393,15 @@ require('lazy').setup({
       'nvim-tree/nvim-web-devicons', -- optional but recommended
     },
     opts = {
-      heading = {
-        enabled = true,
-        sign = false,
-        icons = { '󰲡 ', '󰲣 ', '󰲥 ', '󰲧 ', '󰲩 ', '󰲫 ' },
-        backgrounds = {
-          'RenderMarkdownH1Bg',
-          'RenderMarkdownH2Bg',
-          'RenderMarkdownH3Bg',
-          'RenderMarkdownH4Bg',
-          'RenderMarkdownH5Bg',
-          'RenderMarkdownH6Bg',
+      -- Headings are drawn by lua/custom/markdown_headings.lua instead: centred
+      -- on an 80-column frame, which `left_margin` cannot express.
+      heading = { enabled = false },
+      custom_handlers = {
+        markdown = {
+          extends = true, -- keep the builtin handler for everything but headings
+          parse = function(ctx)
+            return require('custom.markdown_headings').parse(ctx)
+          end,
         },
       },
 

@@ -45,6 +45,7 @@ local function palette()
   end
   return {
     bg_soft = nord.nord1_gui, -- #3B4252
+    white = nord.nord6_gui, -- #ECEFF4
     dim = nord.nord3_gui, -- #4C566A, the terminal's bright black
     muted = nord.nord3_gui_bright, -- #616E88
     cyan = nord.nord7_gui, -- #8FBCBB
@@ -73,14 +74,17 @@ end
 ---@return table[]
 local function rows(p)
   return {
-    -- Headings. Six levels, six colours. Previously all six resolved to the same
-    -- `Title`-derived green in both modes; only the icon told them apart.
-    { '@markup.heading.1.markdown', 'link', { fg = p.frost, bold = true } },
-    { '@markup.heading.2.markdown', 'link', { fg = p.blue, bold = true } },
-    { '@markup.heading.3.markdown', 'link', { fg = p.green, bold = true } },
-    { '@markup.heading.4.markdown', 'link', { fg = p.yellow, bold = true } },
+    -- Headings. H1/H2 sit on a Polar Night band; H3-H6 are transparent, set off
+    -- by the `***` rule (RenderMarkdownDash, so it follows LineNr). The layout --
+    -- centring, the band to the window edge, the rule, H1 in caps -- is drawn in
+    -- rendered mode only, by markdown_headings.lua. In raw mode the band shows
+    -- behind the heading's own text, stopping at end of line as code blocks do.
+    { '@markup.heading.1.markdown', 'RenderMarkdownH1Bg', { fg = p.white, bg = p.bg_soft, bold = true }, { bg = p.bg_soft } },
+    { '@markup.heading.2.markdown', 'RenderMarkdownH2Bg', { fg = p.white, bg = p.bg_soft, bold = true }, { bg = p.bg_soft } },
+    { '@markup.heading.3.markdown', 'link', { fg = p.white, bold = true } },
+    { '@markup.heading.4.markdown', 'link', { fg = p.blue, bold = true } },
     { '@markup.heading.5.markdown', 'link', { fg = p.purple, bold = true } },
-    { '@markup.heading.6.markdown', 'link', { fg = p.red, bold = true } },
+    { '@markup.heading.6.markdown', 'link', { fg = p.white } },
 
     -- Fenced code blocks. The background sits *under* the injected language's own
     -- syntax colours: a capture that only sets `fg` leaves `bg` alone, so python
