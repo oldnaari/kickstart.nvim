@@ -15,8 +15,8 @@
 -- whose quote lies inside one flag.
 --
 -- The quickfix list has its own format (M.qftf): no file name, since a review
--- covers one buffer. Each item carries its full text in user_data.message, and
--- ]q / [q in init.lua show it in a float.
+-- covers one buffer. Each item carries the same line in user_data.message, and
+-- ]q / [q in init.lua show it in a float next to the text.
 
 local M = {}
 
@@ -214,11 +214,6 @@ local function already_flagged(buf, lnum, col, end_lnum, end_col)
   return false
 end
 
-local function sentence(s)
-  s = vim.trim(tostring(s or ''))
-  return (s == '' or s:match '[.!?]$') and s or s .. '.'
-end
-
 -- The edit with no closing punctuation, so the list can add its own.
 local function bare(s)
   return (vim.trim(tostring(s or '')):gsub('[%s%.!?]+$', ''))
@@ -298,20 +293,10 @@ local function show(buf, review)
     local edit = bare(f.edit)
     local head = name .. ' · '
     local soft = soften(edit, i, M.line_width - vim.fn.strchars(head))
-    local message = { string.format('%s (%s)', name, f.rule or '?'), '"' .. f.quote .. '"' }
-    if sentence(f.why) ~= '' then
-      message[#message + 1] = sentence(f.why)
-    end
-    if edit ~= '' then
-      message[#message + 1] = 'One option: ' .. edit
-    end
-    items[i] = {
-      bufnr = buf,
-      lnum = k.lnum,
-      col = k.col,
-      text = soft == '' and name or head .. soft,
-      user_data = { message = table.concat(message, '\n') },
-    }
+    local text = soft == '' and name or head .. soft
+    -- The float shows the list's own line: the quote is under the cursor
+    -- already, and a longer note read badly over the text.
+    items[i] = { bufnr = buf, lnum = k.lnum, col = k.col, text = text, user_data = { message = text } }
   end
 
   local file = vim.api.nvim_buf_get_name(buf)
