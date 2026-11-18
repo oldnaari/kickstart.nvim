@@ -208,6 +208,56 @@ vim.diagnostic.config {
   },
 }
 
+-- ]q / [q (built in: :cnext / :cprev) do the same for quickfix lists whose
+-- items carry a message: a `message` string in the item's user_data, which the
+-- prose review (<leader>pr, prose.nvim's review.lua) sets. In such a list they
+-- jump from the cursor, as ]d does, and show the message in a float that closes
+-- when the cursor moves. Plain :cnext would also skip item 1 of a fresh list.
+-- Other lists, such as grep results, keep plain :cnext / :cprev and no float.
+local function qf_message(item)
+  local data = item and item.user_data
+  local message = type(data) == 'table' and data.message
+  return type(message) == 'string' and message ~= '' and message or nil
+end
+
+local function qf_jump(dir)
+  local items = vim.fn.getqflist()
+  local buf = vim.api.nvim_get_current_buf()
+  local marked, here = false, false
+  for _, item in ipairs(items) do
+    if qf_message(item) then
+      marked = true
+      here = here or item.bufnr == buf
+    end
+  end
+  local cmd = dir > 0 and 'cnext' or 'cprev'
+  if here then
+    cmd = dir > 0 and 'cafter' or 'cbefore'
+  end
+  -- Errors such as E553 (no more items) are shown as the built-in maps show them.
+  local ok, err = pcall(vim.api.nvim_cmd, { cmd = cmd, count = vim.v.count1 }, {})
+  if not ok then
+    local message = tostring(err):gsub('^Vim:', '')
+    vim.api.nvim_echo({ { message } }, true, { err = true })
+    return
+  end
+  local message = marked and qf_message(items[vim.fn.getqflist({ idx = 0 }).idx])
+  if message then
+    -- Scheduled, as vim.diagnostic.jump does for ]d: the jump's own CursorMoved
+    -- fires after the mapping returns and would close a float opened now.
+    vim.schedule(function()
+      vim.lsp.util.open_floating_preview(vim.split(message, '\n'), 'text', { focus = false, max_width = 80 })
+    end)
+  end
+end
+
+vim.keymap.set('n', ']q', function()
+  qf_jump(1)
+end, { desc = 'Next quickfix item (shows a review finding)' })
+vim.keymap.set('n', '[q', function()
+  qf_jump(-1)
+end, { desc = 'Previous quickfix item (shows a review finding)' })
+
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
 -- is not what someone will guess without a bit more experience.
