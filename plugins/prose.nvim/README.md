@@ -5,7 +5,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Feature   | Question                        | Entry points                          | Needs                |
 | :-------- | :------------------------------ | :------------------------------------ | :------------------- |
 | Vale      | Mechanical problems, as I type? | diagnostics from `vale_ls`            | `vale`, `vale-ls`    |
-| Spell     | Is this word known?             | `zgl` (local list), `zgg` (global)    | nothing              |
+| Spell     | Is this word known?             | `zgl` (local list), `zgg` (global), `z=` (picker) | `telescope.nvim` (optional) |
 | Review    | Is the structure clear?         | `<leader>pr`, `:ProseReview`          | `claude` CLI         |
 | Synonyms  | What else means this?           | `<leader>ps`, `:Synonyms`, `<C-x><C-t>` | WordNet (`wn`)     |
 | Fill      | What else fits here?            | `<leader>pf`, `:Fill`                 | `uv`                 |

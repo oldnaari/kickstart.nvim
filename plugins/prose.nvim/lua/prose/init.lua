@@ -1,7 +1,7 @@
 -- prose.nvim: tools for writing prose, each answering a different question.
 --
 --   Vale        mechanical problems, as you type (vale_ls; rules in vale/)
---   Spell       two word lists: `zgl` local, `zgg` global (prose.spell)
+--   Spell       two word lists: `zgl` local, `zgg` global; a z= picker (prose.spell)
 --   Review      judgment calls by `claude -p`, into quickfix (prose.review)
 --   Synonyms    what else MEANS this? WordNet (prose.alternatives, bin/syn)
 --   Fill        what else FITS HERE? a masked model (prose.alternatives, bin/fill)

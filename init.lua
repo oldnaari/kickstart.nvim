@@ -627,6 +627,8 @@ require('lazy').setup({
     'folke/which-key.nvim',
     event = 'VimEnter', -- Sets the loading event to 'VimEnter'
     opts = {
+      -- prose.nvim maps z= to a centered picker (prose/spell.lua).
+      plugins = { spelling = { enabled = false } },
       icons = {
         -- set icon mappings to true if you have a Nerd Font
         mappings = vim.g.have_nerd_font,
