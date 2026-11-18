@@ -686,6 +686,69 @@ function M.paint_roles(buf, paras, cache)
   end
 end
 
+-- --- jumping -----------------------------------------------------------------
+
+---Start positions of the `role` spans from the cursor's row to the end of the
+---file (dir 1) or to its start (dir -1), in buffer order. They come from the
+---parse, not the painted marks, which exist only around the view; a paragraph
+---still waiting on the parser has none.
+---@return integer[][] 0-based {row, col}
+local function targets(buf, role, dir)
+  local st = bufs[buf]
+  local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+  local range = dir > 0 and { row, vim.api.nvim_buf_line_count(buf) - 1 } or { 0, row }
+  local out = {}
+  for _, p in ipairs(paragraphs(buf, { range })) do
+    for _, span in ipairs(st.cache[p.text] and st.cache[p.text].spans or {}) do
+      if span[3] == role then
+        local srow, scol = position(p, span[1])
+        local erow, ecol = position(p, span[2])
+        if not blocked(p, srow, scol, erow, ecol) then
+          out[#out + 1] = { srow, scol }
+        end
+      end
+    end
+  end
+  table.sort(out, function(a, b)
+    return a[1] < b[1] or (a[1] == b[1] and a[2] < b[2])
+  end)
+  return out
+end
+
+local NAMES = { action = 'verb' }
+
+---Move the cursor to the start of the next (dir 1) or previous (dir -1) `role`
+---span, [count] of them away: ]v, [v, ]o, [o. It stops at the last one and
+---does not wrap around the file.
+---@param role 'subject'|'action'|'object'|'noun'
+---@param dir 1|-1
+function M.jump(role, dir)
+  local buf = vim.api.nvim_get_current_buf()
+  if not bufs[buf] then
+    local key = (require('prose').config.keys or {}).roles
+    notify(('Roles are off here; %s turns them on.'):format(key or ':ProseRoles'))
+    return
+  end
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row, col = cursor[1] - 1, cursor[2]
+  local ahead = {}
+  for _, t in ipairs(targets(buf, role, dir)) do
+    local after = t[1] > row or (t[1] == row and t[2] > col)
+    local before = t[1] < row or (t[1] == row and t[2] < col)
+    if (dir > 0 and after) or (dir < 0 and before) then
+      ahead[#ahead + 1] = t
+    end
+  end
+  if #ahead == 0 then
+    local waiting = M.pending(buf)
+    notify(('No %s %s%s'):format(NAMES[role] or role, dir > 0 and 'below' or 'above', waiting > 0 and (' (%d paragraphs still parsing)'):format(waiting) or ''))
+    return
+  end
+  local n = math.min(vim.v.count1, #ahead)
+  local t = dir > 0 and ahead[n] or ahead[#ahead - n + 1]
+  vim.api.nvim_win_set_cursor(0, { t[1] + 1, t[2] })
+end
+
 ---Repaint `buf` after `delay` ms, restarting the wait on every call.
 function refresh(buf, delay)
   local st = bufs[buf]

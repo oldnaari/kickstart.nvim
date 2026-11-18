@@ -10,7 +10,7 @@ Tools for writing prose in Neovim. Each one answers a different question.
 | Synonyms  | What else means this?           | `<leader>ps`, `:Synonyms`, `<C-x><C-t>` | WordNet (`wn`)     |
 | Fill      | What else fits here?            | `<leader>pf`, `:Fill`                 | `uv`                 |
 | Highlight | Where are the asides?           | dims `(parentheticals)`, colours `"quotes"` | `mini.hipatterns` |
-| Roles     | Who does what to whom?          | `<leader>pg`, `:ProseRoles [status\|stop]` | `uv`            |
+| Roles     | Who does what to whom?          | `<leader>pg`, `:ProseRoles [status\|stop]`, `]v` / `[v`, `]o` / `[o` | `uv`            |
 | Patterns  | What could be clearer?          | `<leader>pp`, `:ProsePatterns`, `]d` / `[d` | `uv`; WordNet (optional) |
 | Keyboard  | Type Armenian or Russian?       | `<leader>k` picker, `<C-^>` in Insert | `telescope.nvim` (optional) |
 | Emoji     | Which emoji is that?            | `<leader>pe`, `:Emoji`                | `telescope.nvim`, `telescope-symbols.nvim` |
@@ -55,7 +55,7 @@ The defaults:
 ```lua
 {
   filetypes = { 'markdown' },
-  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', patterns = '<leader>pp', layout = '<leader>k', emoji = '<leader>pe' }, -- each may be false
+  keys = { review = '<leader>pr', synonym = '<leader>ps', fill = '<leader>pf', roles = '<leader>pg', jumps = { action = 'v', object = 'o' }, patterns = '<leader>pp', layout = '<leader>k', emoji = '<leader>pe' }, -- each may be false
   layouts = { -- in the <leader>k picker, `key` picks at once; keymap = '' means English
     { key = 'e', name = 'English', keymap = '' },
     { key = 'a', name = 'Armenian', keymap = 'armenian-hmqwerty' },
@@ -146,6 +146,7 @@ What to expect:
 - **On or off.** It is off until you toggle it, unless `setup { roles = true }`, which turns it on in every markdown file as it opens (files only: LSP hover windows are markdown too, and stay plain). `<leader>pg` still turns it off in a buffer, and it stays off there when the file reloads.
 - **Cost.** The first buffer with roles on starts one shared parser (`bin/roles --daemon`) that every Neovim connects to, so three tabs cost one set of models, not three. It loads English at once and keeps it: about 0.9 GB. Russian and Armenian load the first time they appear (5-15 s) and unload after 30 minutes unused, which takes the memory back down to the English level; change that with `require('prose.roles').keep_alive`. The first run downloads the models: about 300 MB each for English and Russian, and about 1.6 GB for Armenian.
 - **It keeps running.** The parser outlives Neovim on purpose, so the next tab or Claude Code prompt colours English at once. It runs detached, writing only to `stdpath('state')/prose-roles.log`, so it never keeps an editor from closing. `:ProseRoles status` shows what it holds; `:ProseRoles stop` ends it and frees the memory, and turns roles off in that Neovim's buffers; with `roles = true`, the next file you open starts it again. When `bin/roles` changes, the old parser hands over to a fresh one. While it runs, `uv cache clean` waits for it (or pass `--force`).
+- **Jumping.** `]v` and `[v` go to the next and previous verb, `]o` and `[o` to the next and previous object; a count goes further, and Visual mode extends the selection. They read the parse, so they skip a paragraph that is still being parsed, and say so when nothing is left. `keys.jumps` maps a role (`subject`, `action`, `object`, `noun`) to the letter after `]` and `[`; `false` turns the jumps off.
 - **Only what you see.** It parses the paragraphs in view and a screen either side, and more as you scroll, so a 3,000-paragraph file costs no more than a short one. After an edit, only the paragraphs whose text changed are parsed again, about 60 ms each.
 
 `bin/roles --show < file.md` prints the roles in brackets, which is handy for checking a sentence. The groups `ProseSubject`, `ProseAction`, `ProseObject` and `ProseNoun` link to `Identifier`, `Statement` and `Type`, and a dotted underline, unless your theme defines them.

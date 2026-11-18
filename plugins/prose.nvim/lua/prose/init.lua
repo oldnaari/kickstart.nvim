@@ -33,6 +33,9 @@ M.defaults = {
     synonym = '<leader>ps',
     fill = '<leader>pf',
     roles = '<leader>pg', -- toggles subject/action/object colouring
+    -- ]v / [v, ]o / [o: next / previous verb, object. A role (subject, action,
+    -- object, noun) maps to the letter after ] and [.
+    jumps = { action = 'v', object = 'o' },
     patterns = '<leader>pp', -- toggles the bad-pattern flags (diagnostics)
     layout = '<leader>k', -- opens the keyboard layout picker
     emoji = '<leader>pe', -- opens the emoji picker
@@ -93,6 +96,19 @@ local function attach(buf)
   map(keys.roles, function()
     require('prose.roles').toggle(0)
   end, '[P]rose [G]rammar roles (subject, action, object)')
+
+  -- Walk the roles the parser found. Visual mode too, so v]o selects up to
+  -- the next object.
+  for role, letter in pairs(keys.jumps or {}) do
+    if letter then
+      local name = role == 'action' and 'verb' or role
+      for lhs, dir in pairs { [']' .. letter] = 1, ['[' .. letter] = -1 } do
+        vim.keymap.set({ 'n', 'x' }, lhs, function()
+          require('prose.roles').jump(role, dir)
+        end, { buffer = buf, desc = (dir > 0 and 'Next ' or 'Previous ') .. name })
+      end
+    end
+  end
 
   map(keys.patterns, function()
     require('prose.patterns').toggle(0)
