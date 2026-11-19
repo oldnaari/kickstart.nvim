@@ -133,7 +133,7 @@ opts = { patterns = { off = { 'Repetition', 'Cohesion' } } }
 - **Word lists.** `patterns/lexicon/en.txt`, `ru.txt` and `hy.txt`, one entry per line under a `[section]` (`[weak-verb]` and `[acronym-ok]` take several words to a line). Entries match the word as written or its dictionary form, so «являться» finds «является». Edits apply from the next paragraph parsed; no restart. The Armenian lists are a short start: there is no published list to take them from.
 - **English extras, both optional.** WordNet (`brew install wordnet`) confirms English nominalizations ("decision" comes from "decide", "nation" from no verb). The Abstract check needs the concreteness ratings of Brysbaert, Warriner & Kuperman (2014); the first English paragraph downloads them once, 2 MB from the publisher, into `~/Library/Caches/prose.nvim` (`~/.cache/prose.nvim` on Linux). Without them that check is skipped.
 - **Checking a rule.** `bin/roles --show --flags < file.md` lists every flag with its text and message.
-- **Not here.** Sentence length stays a Vale rule (`Prompt.LongSentence`, and `Prompt.LongSentenceHyRu` for Armenian and Russian), and so does the vague "This is…" opener.
+- **Not here.** Sentence length stays a Vale rule (`Prompt.LongSentence`, and `Prompt.LongSentenceHyRu` for Armenian and Russian), and so does the vague "This is…" opener. So does line length: `Prompt.LongLine` underlines whatever runs past 90 characters, outside code blocks and tables, and the review (`<leader>pr`) suggests where to split that line (R9).
 
 ## Roles
 

@@ -1,0 +1,53 @@
+// Prompt.LongLine: a source line longer than 90 characters.
+//
+// Characters, not bytes: Go's `.` matches one code point, so an Armenian or
+// Russian line counts as many characters as it shows. Skipped: front matter,
+// fenced code blocks and table rows (a table cannot wrap; code is not prose).
+// The match covers only the overflow, so the underline shows how much to cut.
+//
+// The same limit and the same skips are in prose.nvim's lua/prose/review.lua
+// (R9) and in the plan-style skill's lint (L10); change all three together.
+text := import("text")
+
+max_chars := 90
+matches := []
+
+lines := text.re_find(`(?m)^.*$`, scope, -1)
+if lines != undefined {
+  fence := ""
+  front := false
+  for i, l in lines {
+    m := l[0]
+    line := m.text
+    if i == 0 && text.trim_space(line) == "---" {
+      front = true
+      continue
+    }
+    if front {
+      t := text.trim_space(line)
+      if t == "---" || t == "..." {
+        front = false
+      }
+      continue
+    }
+    if fence != "" {
+      close := text.re_find("^\\s*(`{3,}|~{3,})\\s*$", line, 1)
+      if close != undefined && text.has_prefix(close[0][1].text, fence) {
+        fence = ""
+      }
+      continue
+    }
+    open := text.re_find("^\\s*(`{3,}|~{3,})", line, 1)
+    if open != undefined {
+      fence = open[0][1].text
+      continue
+    }
+    if text.re_match(`^\s*\|`, line) {
+      continue
+    }
+    head := text.re_find(`^.{` + max_chars + `}`, line, 1)
+    if head != undefined && head[0][0].end < len(line) {
+      matches = append(matches, {begin: m.begin + head[0][0].end, end: m.end})
+    }
+  }
+}

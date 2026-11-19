@@ -1,0 +1,8 @@
+extends: script
+message: "Line longer than 90 characters: it wraps in a soft-wrapped window, and a long line is usually a long sentence. Split it, or move long code into a code block."
+level: warning
+# `raw`, not `text`: the limit is on source lines, which `text` does not keep.
+# The script skips front matter, fenced code and table rows itself, and
+# underlines only the part past column 90.
+scope: raw
+script: LongLine.tengo
