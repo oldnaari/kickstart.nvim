@@ -39,6 +39,8 @@ M.defaults = {
     patterns = '<leader>pp', -- toggles the bad-pattern flags (diagnostics)
     layout = '<leader>k', -- opens the keyboard layout picker
     emoji = '<leader>pe', -- opens the emoji picker
+    toc = '<leader>pt', -- opens the table of contents picker
+    unicode_format = '<leader>pu', -- opens the Unicode style picker
   },
   -- Insert-mode keyboard layouts (Vim's 'keymap'); see prose/layout.lua.
   -- `key` picks the layout straight from the picker, so avoid the picker's own
@@ -114,13 +116,14 @@ local function attach(buf)
     require('prose.patterns').toggle(0)
   end, '[P]rose [P]attern flags (]d / [d to walk them)')
 
-  map(keys.layout, function()
-    require('prose.layout').pick(M.config.layouts)
-  end, '[K]eyboard layout')
 
   map(keys.emoji, function()
     require('prose.emoji').pick()
   end, '[P]rose [E]moji')
+
+  map(keys.toc, function()
+    require('prose.toc').open()
+  end, '[P]rose [T]OC')
 
   if M.config.thesaurus then
     vim.bo[buf].thesaurusfunc = "v:lua.require'prose.alternatives'.complete"
@@ -254,6 +257,22 @@ function M.setup(opts)
     if vim.api.nvim_buf_is_loaded(buf) and vim.tbl_contains(cfg.filetypes, vim.bo[buf].filetype) then
       attach(buf)
     end
+  end
+
+  if cfg.keys and cfg.keys.layout then
+    vim.keymap.set('n', cfg.keys.layout, function()
+      require('prose.layout').pick(M.config.layouts)
+    end, { desc = '[K]eyboard layout' })
+  end
+
+  if cfg.keys and cfg.keys.unicode_format then
+    local pu = cfg.keys.unicode_format
+    vim.keymap.set('n', pu, function()
+      require('prose.unicode_format').format_normal()
+    end, { desc = '[P]rose [U]nicode format' })
+    vim.keymap.set('x', pu, function()
+      require('prose.unicode_format').format_visual()
+    end, { desc = '[P]rose [U]nicode format' })
   end
 
   default_highlights()

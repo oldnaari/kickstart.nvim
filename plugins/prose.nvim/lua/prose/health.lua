@@ -117,6 +117,15 @@ function M.check()
     vim.health.warn '`claude` (Claude Code) not found: :ProseReview and <leader>pr are unavailable'
   end
 
+  vim.health.start 'Unicode format (prose/unicode_format.lua)'
+
+  local uf_key = require('prose').config.keys and require('prose').config.keys.unicode_format
+  if uf_key then
+    vim.health.ok(('`%s` (n, x): Unicode styled text, 15 styles, no external binary needed'):format(uf_key))
+  else
+    vim.health.info 'unicode_format key not set: Unicode format unavailable'
+  end
+
   vim.health.start 'Vale (vale/.vale.ini)'
 
   if not require('prose').config.vale then
