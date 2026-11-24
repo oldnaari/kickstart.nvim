@@ -224,19 +224,36 @@ function M.pick(text, on_select)
     :find()
 end
 
--- Capture the visual selection (call after Neovim has exited visual mode,
--- i.e. from an 'x'-mode keymap). Returns text and 0-indexed positions for
--- nvim_buf_set_text, or nil when no selection is set.
+-- Capture the visual selection. Works in both normal mode (marks '< '> are set
+-- after visual mode exits) and visual mode (some which-key configs call the
+-- 'x' keymap callback before Neovim has updated the marks; use 'v'/'.' then).
 local function get_visual()
-  local sl = vim.fn.line("'<")
-  local el = vim.fn.line("'>")
-  if sl == 0 then return nil end
-  local cs    = vim.fn.col("'<")
-  local ce    = vim.fn.col("'>")
+  local sl, cs, el, ce
+  local mode = vim.api.nvim_get_mode().mode
+  if mode == 'v' or mode == 'V' or mode == '\22' then
+    local vs = vim.fn.getpos('v')
+    local ve = vim.fn.getpos('.')
+    sl, cs = vs[2], vs[3]
+    el, ce = ve[2], ve[3]
+    if sl > el or (sl == el and cs > ce) then
+      sl, cs, el, ce = el, ce, sl, cs
+    end
+    if mode == 'V' then
+      cs = 1
+      local ll = vim.api.nvim_buf_get_lines(0, el - 1, el, false)[1] or ''
+      ce = #ll
+    end
+  else
+    sl = vim.fn.line("'<")
+    cs = vim.fn.col("'<")
+    el = vim.fn.line("'>")
+    ce = vim.fn.col("'>")
+    if sl == 0 then return nil end
+  end
   local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
   if #lines == 0 then return nil end
   local last    = lines[#lines]
-  local ce_last = char_last_byte(last, ce)
+  local ce_last = math.min(char_last_byte(last, ce), #last)
   local text
   if sl == el then
     text = lines[1]:sub(cs, ce_last)
@@ -246,7 +263,6 @@ local function get_visual()
     parts[#parts + 1] = last:sub(1, ce_last)
     text = table.concat(parts, '\n')
   end
-  -- 0-indexed positions; ce_last is the 0-indexed exclusive end column
   return text, sl - 1, cs - 1, el - 1, ce_last
 end
 

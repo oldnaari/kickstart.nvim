@@ -248,14 +248,34 @@ end
 function M.pick_fill_visual()
   if not have('uv', 'Fill') then return end
 
-  local sl = vim.fn.line("'<")
-  local el = vim.fn.line("'>")
+  -- Works in both normal mode (marks '< '> are set after visual mode exits) and
+  -- visual mode (some which-key configs call the 'x' keymap before Neovim
+  -- updates the marks; fall back to 'v'/'.' for the live selection).
+  local mode = vim.api.nvim_get_mode().mode
+  local sl, cs, el, ce
+  if mode == 'v' or mode == 'V' or mode == '\22' then
+    local vs = vim.fn.getpos('v')
+    local ve = vim.fn.getpos('.')
+    sl, cs = vs[2], vs[3]
+    el, ce = ve[2], ve[3]
+    if sl > el or (sl == el and cs > ce) then
+      sl, cs, el, ce = el, ce, sl, cs
+    end
+    if mode == 'V' then
+      cs = 1
+      local ll = vim.api.nvim_buf_get_lines(0, el - 1, el, false)[1] or ''
+      ce = #ll
+    end
+  else
+    sl = vim.fn.line("'<")
+    cs = vim.fn.col("'<")
+    el = vim.fn.line("'>")
+    ce = vim.fn.col("'>")
+  end
   if sl == 0 then
     notify('No selection', vim.log.levels.WARN)
     return
   end
-  local cs = vim.fn.col("'<")
-  local ce = vim.fn.col("'>")
 
   local buf       = vim.api.nvim_get_current_buf()
   local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
