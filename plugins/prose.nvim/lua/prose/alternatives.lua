@@ -185,6 +185,14 @@ end
 -- Marks the slot in the text sent to bin/fill. Not `*`, which markdown uses.
 local MARKER = '⟦FILL⟧'
 
+local function char_last_byte(str, start)
+  local b = str:byte(start)
+  if not b or b < 0x80 then return start end
+  if b >= 0xF0 then return start + 3 end
+  if b >= 0xE0 then return start + 2 end
+  return start + 1
+end
+
 ---Ask the model what could replace the word under the cursor, given the text
 ---around it (bin/fill keeps about 512 tokens centred on the word), and replace
 ---it with the choice. Async: the model takes a few seconds to load.
@@ -232,6 +240,80 @@ function M.pick_fill()
       end)
     end)
   end)
+end
+
+---Ask the model what could replace the visual selection. Masks the entire
+---selection with a single MARKER token, so the model predicts one word that
+---fits that slot in context.
+function M.pick_fill_visual()
+  if not have('uv', 'Fill') then return end
+
+  local sl = vim.fn.line("'<")
+  local el = vim.fn.line("'>")
+  if sl == 0 then
+    notify('No selection', vim.log.levels.WARN)
+    return
+  end
+  local cs = vim.fn.col("'<")
+  local ce = vim.fn.col("'>")
+
+  local buf       = vim.api.nvim_get_current_buf()
+  local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local last_line = all_lines[el]
+  -- Clamp handles v:maxcol from linewise visual.
+  local ce_last = math.min(char_last_byte(last_line, ce), #last_line)
+
+  local sel_parts
+  if sl == el then
+    sel_parts = { last_line:sub(cs, ce_last) }
+  else
+    sel_parts = { all_lines[sl]:sub(cs) }
+    for i = sl + 1, el - 1 do sel_parts[#sel_parts + 1] = all_lines[i] end
+    sel_parts[#sel_parts + 1] = last_line:sub(1, ce_last)
+  end
+  local sel_text = table.concat(sel_parts, ' ')
+  local display  = (#sel_text > 30 and sel_text:sub(1, 27) .. '…' or sel_text):gsub('%s+', ' ')
+
+  local masked = vim.deepcopy(all_lines)
+  if sl == el then
+    masked[sl] = all_lines[sl]:sub(1, cs - 1) .. MARKER .. all_lines[sl]:sub(ce_last + 1)
+  else
+    masked[sl] = all_lines[sl]:sub(1, cs - 1) .. MARKER .. last_line:sub(ce_last + 1)
+    for i = el, sl + 1, -1 do table.remove(masked, i) end
+  end
+
+  notify(('Fill: asking the model about "%s"…'):format(display))
+  vim.system(
+    { M.bin .. '/fill', '-m', MARKER, '-n', '30' },
+    { stdin = table.concat(masked, '\n'), text = true },
+    function(res)
+      vim.schedule(function()
+        if res.code ~= 0 then
+          notify('Fill failed: ' .. vim.trim(res.stderr or ''), vim.log.levels.ERROR)
+          return
+        end
+        if vim.api.nvim_get_current_buf() ~= buf then
+          notify('Fill: switched buffers while the model was thinking; not shown', vim.log.levels.WARN)
+          return
+        end
+        local items = {}
+        for l in vim.gsplit(res.stdout, '\n', { plain = true, trimempty = true }) do
+          local w, p = l:match '^(.-)\t(.*)$'
+          if w then items[#items + 1] = { word = w, prob = p } end
+        end
+        vim.ui.select(items, {
+          prompt = ('What fits instead of "%s"'):format(display),
+          format_item = function(it)
+            return ('%-20s %6s'):format(it.word, it.prob)
+          end,
+        }, function(choice)
+          if choice then
+            vim.api.nvim_buf_set_text(buf, sl - 1, cs - 1, el - 1, ce_last, { choice.word })
+          end
+        end)
+      end)
+    end
+  )
 end
 
 return M

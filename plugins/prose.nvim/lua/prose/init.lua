@@ -94,6 +94,11 @@ local function attach(buf)
   map(keys.fill, function()
     require('prose.alternatives').pick_fill()
   end, '[P]rose [F]ill (what fits here)')
+  if keys.fill then
+    vim.keymap.set('x', keys.fill, function()
+      require('prose.alternatives').pick_fill_visual()
+    end, { buffer = buf, desc = '[P]rose [F]ill (what fits in selection)' })
+  end
 
   map(keys.roles, function()
     require('prose.roles').toggle(0)
